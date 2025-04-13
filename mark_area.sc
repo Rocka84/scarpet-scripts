@@ -1,6 +1,6 @@
 // mark_area - Visualize the area selected in WorldEdit.
 // By Rocka84 (foospils)
-// v1.0
+// v1.1
 
 __config() -> {
   'stay_loaded' -> true,
@@ -43,15 +43,20 @@ global_direction_vectors = {
 
 
 
-_draw_box(from, to, timeout) -> (
-    attributes = {
-      'from' -> from,
-      'to' -> to,
-      'color' -> 0xFF0000FF,
-      'line' -> 10.0,
-    };
-    // print(attributes);
-    draw_shape('box', timeout, attributes);
+_draw_box(from, to, color) -> (
+  draw_shape('box', 48000, {
+    'from' -> from,
+    'to' -> to,
+    'color' -> color,
+  });
+);
+
+_hide_box(from, to, color) -> (
+  draw_shape('box', 0, {
+    'from' -> from,
+    'to' -> to,
+    'color' -> color,
+  });
 );
 
 _calc_minmax() -> (
@@ -67,12 +72,6 @@ _calc_minmax() -> (
     ceil(max(global_pos1:1, global_pos2:1)),
     ceil(max(global_pos1:2, global_pos2:2))
   ];
-);
-
-_update() -> (
-  hide();
-  _calc_minmax();
-  show();
 );
 
 _run_worldedit(command) -> (
@@ -105,51 +104,83 @@ _get_player_direction() -> (
   return('none');
 );
 
+_coord_floor(a) -> (
+  [
+    floor(a:0),
+    floor(a:1),
+    floor(a:2)
+  ]
+);
+
+_coord_ceil(a) -> (
+  [
+    ceil(a:0),
+    ceil(a:1),
+    ceil(a:2)
+  ]
+);
 
 show() -> (
+  if(global_pos1 != null, (
+    _draw_box(_coord_floor(global_pos1), _coord_ceil(global_pos1), 0xFF0000FF);
+  ));
   if(global_min != null && global_max != null, (
-    _draw_box(global_min, global_max, 48000);
+    _draw_box(global_min, global_max, 0x00FF00FF);
+  ));
+  if(global_pos2 != null, (
+    _draw_box(_coord_floor(global_pos2), _coord_ceil(global_pos2), 0x0000FFFF);
   ));
 );
 
 hide() -> (
+  if(global_pos1 != null, (
+    _hide_box(_coord_floor(global_pos1), _coord_ceil(global_pos1), 0xFF0000FF);
+  ));
   if(global_min != null && global_max != null, (
-    _draw_box(global_min, global_max, 0);
+    _hide_box(global_min, global_max, 0x00FF00FF);
+  ));
+  if(global_pos2 != null, (
+    _hide_box(_coord_floor(global_pos2), _coord_ceil(global_pos2), 0x0000FFFF);
   ));
 );
 
 pos1(pos) -> (
   // _run_worldedit('pos1 ' + floor(pos:0) + ',' + floor(pos:1) + ',' + floor(pos:2));
 
+  hide();
   global_pos1 = pos;
-  _update();
+  _calc_minmax();
+  show();
 );
 
 pos2(pos) -> (
   // _run_worldedit('pos2 ' + floor(pos:0) + ',' + floor(pos:1) + ',' + floor(pos:2));
 
+  hide();
   global_pos2 = pos;
-  _update();
+  _calc_minmax();
+  show();
 );
 
 expand(count, direction) -> (
   // _run_worldedit('expand ' + count + ' ' + direction);
 
-  vector = get(global_direction_vectors, direction);
   hide();
-  if(min(0, vector:0, vector:1, vector:2) < 0, (
-    global_min = global_min + (vector * count);
+  vector = get(global_direction_vectors, direction);
+  if(global_pos1 * vector > global_pos2 * vector, (
+    global_pos1 = global_pos1 + (vector * count);
   ),(
-    global_max = global_max + (vector * count);
+    global_pos2 = global_pos2 + (vector * count);
   ));
+  _calc_minmax();
   show();
 );
 
 shift(count, direction) -> (
   // _run_worldedit('expand ' + count + ' ' + direction);
 
-  vector = get(global_direction_vectors, direction);
   hide();
+  vector = get(global_direction_vectors, direction);
   global_pos1 = global_pos1 + (vector * count);
   global_pos2 = global_pos2 + (vector * count);
   _calc_minmax();
@@ -210,6 +241,20 @@ __on_player_command(player, command) -> (
     ));
 
     expand(number(args:1), direction);
+    return();
+  ));
+
+  if (command ~ '/contract', (
+    args = split(' ', command);
+    if (length(args) < 2, return());
+
+    if (length(args) > 2, (
+      direction = args:2;
+    ),(
+      direction = _get_player_direction();
+    ));
+
+    expand(number(args:1) * -1, direction);
     return();
   ));
 
