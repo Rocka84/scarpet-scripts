@@ -1,6 +1,6 @@
 // mark_area - Visualize the area selected in WorldEdit.
 // By Rocka84 (foospils)
-// v1.1
+// v1.2
 
 __config() -> {
   'stay_loaded' -> true,
@@ -9,27 +9,38 @@ __config() -> {
   {
     '' -> _() -> print('Visualize the area selected in WorldEdit.'),
     'posOne' -> _() -> pos1(pos(player())),
-    'posOne <x> <y> <z>' -> _(x, y, z) -> pos1([x, y, z]),
+    'posOne <pos>' -> _(p) -> pos1(p + [0.5, 0.5, 0.5]),
     'posTwo' -> _() -> pos2(pos(player())),
-    'posTwo <x> <y> <z>' -> _(x, y, z) -> pos2([x, y, z]),
+    'posTwo <pos>' -> _(p) -> pos2(p + [0.5, 0.5, 0.5]),
     'expand' -> _() -> expand(1, _get_player_direction()),
     'expand <count>' -> _(c) -> expand(c, _get_player_direction()),
     'expand <count> <direction>' -> ['expand'],
     'contract' -> _() -> expand(-1, _get_player_direction()),
     'contract <count>' -> _(c) -> expand(c * -1, _get_player_direction()),
     'contract <count> <direction>' -> _(c, d) -> expand(c * -1, d),
+    'show' -> ['show'],
     'hide' -> ['hide'],
+    'toggle' -> _() -> if(global_area_visible, hide(), show()),
+    'toggleThick' -> _() -> (hide(); global_thick_box = !global_thick_box; show();),
     // 'test' -> _() -> (print(['look',_get_player_direction()]); print(['facing', query(player(), 'facing')]);),
+  },
+  'arguments' -> {
+    'pos' -> { 'type' -> 'pos' },
+    'count' -> { 'type' -> 'int', 'min' -> 1, 'suggest' -> [1] },
+    'direction' -> { 'type' -> 'term', 'suggest' -> ['north', 'east', 'south', 'west', 'up', 'down'] },
   }
 };
 
 global_selwand = 'wooden_axe';
 
+global_area_visible = false;
 global_pos1 = null;
 global_pos2 = null;
 
 global_min = null;
 global_max = null;
+
+global_thick_box = true;
 
 global_direction_vectors = {
   'none'  -> [ 0,  0,  0],
@@ -43,20 +54,60 @@ global_direction_vectors = {
 
 
 
-_draw_box(from, to, color) -> (
-  draw_shape('box', 48000, {
+__draw_box(from, to, color, duration) -> (
+  draw_shape('box', duration, {
     'from' -> from,
     'to' -> to,
     'color' -> color,
   });
 );
 
+_draw_box(from, to, color) -> (
+  __draw_box(from, to, color, 48000);
+);
+
 _hide_box(from, to, color) -> (
-  draw_shape('box', 0, {
-    'from' -> from,
-    'to' -> to,
+  __draw_box(from, to, color, 0);
+);
+
+__draw_line(from, to, color, thickness, duration) -> (
+  draw_shape('box', duration, {
+    'from' -> from - [thickness/2, thickness/2, thickness/2],
+    'to' -> to + [thickness/2, thickness/2, thickness/2],
     'color' -> color,
+    'fill' -> color,
   });
+);
+
+_draw_line(from, to, color, thickness) -> (
+  __draw_line(from, to, color, thickness, 48000);
+);
+
+_hide_line(from, to, color, thickness) -> (
+  __draw_line(from, to, color, thickness, 0);
+);
+
+__draw_box_thick(from, to, color, duration) -> (
+  __draw_line((from * [1,1,1]) + (to * [0,0,0]), (from * [1,1,0]) + (to * [0,0,1]), color, 0.01, duration);
+  __draw_line((from * [1,1,1]) + (to * [0,0,0]), (from * [1,0,1]) + (to * [0,1,0]), color, 0.01, duration);
+  __draw_line((from * [1,1,1]) + (to * [0,0,0]), (from * [0,1,1]) + (to * [1,0,0]), color, 0.01, duration);
+  __draw_line((from * [0,1,1]) + (to * [1,0,0]), (from * [0,1,0]) + (to * [1,0,1]), color, 0.01, duration);
+  __draw_line((from * [0,1,1]) + (to * [1,0,0]), (from * [0,0,1]) + (to * [1,1,0]), color, 0.01, duration);
+  __draw_line((from * [1,0,1]) + (to * [0,1,0]), (from * [1,0,0]) + (to * [0,1,1]), color, 0.01, duration);
+  __draw_line((from * [1,0,1]) + (to * [0,1,0]), (from * [0,0,1]) + (to * [1,1,0]), color, 0.01, duration);
+  __draw_line((from * [1,1,0]) + (to * [0,0,1]), (from * [1,0,0]) + (to * [0,1,1]), color, 0.01, duration);
+  __draw_line((from * [1,1,0]) + (to * [0,0,1]), (from * [0,1,0]) + (to * [1,0,1]), color, 0.01, duration);
+  __draw_line((from * [1,0,0]) + (to * [0,1,1]), (from * [0,0,0]) + (to * [1,1,1]), color, 0.01, duration);
+  __draw_line((from * [0,1,0]) + (to * [1,0,1]), (from * [0,0,0]) + (to * [1,1,1]), color, 0.01, duration);
+  __draw_line((from * [0,0,1]) + (to * [1,1,0]), (from * [0,0,0]) + (to * [1,1,1]), color, 0.01, duration);
+);
+
+_draw_box_thick(from, to, color) -> (
+  __draw_box_thick(from, to, color, 48000);
+);
+
+_hide_box_thick(from, to, color) -> (
+  __draw_box_thick(from, to, color, 0);
 );
 
 _calc_minmax() -> (
@@ -82,22 +133,22 @@ _run_worldedit(command) -> (
 _get_player_direction() -> (
   look = query(player(), 'look');
 
-  if(look:2 < -0.9, (
+  if(look:2 < -0.95, (
     return('north');
   ));
-  if(look:0 >  0.9, (
+  if(look:0 >  0.95, (
     return('east');
   ));
-  if(look:2 >  0.9, (
+  if(look:2 >  0.95, (
     return('south');
   ));
-  if(look:0 < -0.9, (
+  if(look:0 < -0.95, (
     return('west');
   ));
-  if(look:1 >  0.9, (
+  if(look:1 >  0.95, (
     return('up');
   ));
-  if(look:1 < -0.9, (
+  if(look:1 < -0.95, (
     return('down');
   ));
 
@@ -121,11 +172,12 @@ _coord_ceil(a) -> (
 );
 
 show() -> (
+  global_area_visible = true;
   if(global_pos1 != null, (
     _draw_box(_coord_floor(global_pos1), _coord_ceil(global_pos1), 0xFF0000FF);
   ));
   if(global_min != null && global_max != null, (
-    _draw_box(global_min, global_max, 0x00FF00FF);
+    if (global_thick_box, _draw_box_thick(global_min, global_max, 0xFFFF0066), _draw_box(global_min, global_max, 0x00FF0066));
   ));
   if(global_pos2 != null, (
     _draw_box(_coord_floor(global_pos2), _coord_ceil(global_pos2), 0x0000FFFF);
@@ -133,11 +185,12 @@ show() -> (
 );
 
 hide() -> (
+  global_area_visible = hide;
   if(global_pos1 != null, (
     _hide_box(_coord_floor(global_pos1), _coord_ceil(global_pos1), 0xFF0000FF);
   ));
   if(global_min != null && global_max != null, (
-    _hide_box(global_min, global_max, 0x00FF00FF);
+    if (global_thick_box, _hide_box_thick(global_min, global_max, 0xFFFF0066), _hide_box(global_min, global_max, 0x00FF0066));
   ));
   if(global_pos2 != null, (
     _hide_box(_coord_floor(global_pos2), _coord_ceil(global_pos2), 0x0000FFFF);
@@ -164,6 +217,7 @@ pos2(pos) -> (
 
 expand(count, direction) -> (
   // _run_worldedit('expand ' + count + ' ' + direction);
+  if(global_pos1 == null || global_pos2 == null, return());
 
   hide();
   vector = get(global_direction_vectors, direction);
@@ -178,6 +232,7 @@ expand(count, direction) -> (
 
 shift(count, direction) -> (
   // _run_worldedit('expand ' + count + ' ' + direction);
+  if(global_pos1 == null || global_pos2 == null, return());
 
   hide();
   vector = get(global_direction_vectors, direction);
