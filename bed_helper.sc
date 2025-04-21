@@ -1,6 +1,6 @@
 // Bed Helper - Suppress "too far away" message for beds and optinally teleport to clicked bed.
 // By Rocka84 (foospils)
-// v1.0
+// v1.1
 
 __config() -> {
   'stay_loaded' -> true,
@@ -66,8 +66,11 @@ __on_start() -> (
 
 distance(a, b) -> (
   v = a - b;
-  // sqrt(abs(v:0 * v:0) + abs(v:1 * v:1) + abs(v:2 * v:2));
-  max(abs(v:0), abs(v:1), abs(v:2));
+  sqrt((v:0 * v:0) + (v:1 * v:1) + (v:2 * v:2));
+);
+
+distanceToBed(player, bed) -> (
+  distance(pos(player), pos(bed) + [0.5, 0, 0.5]);
 );
 
 isNight() -> (
@@ -78,25 +81,31 @@ isThunderstorm() -> (
   return(weather() == 'thunder' && weather('rain') > 0 );
 );
 
-canSleep() -> (
-  return(isNight() || isThunderstorm());
+isSpawnBed(bed) -> (
+  spawn = player()~'spawn_point';
+  player()~'dimension' == spawn:1 && distance(spawn:0, pos(bed)) <= 1;
 );
-
-// isSpawnBed(bed) -> (
-//   spawn = player()~'spawn_point';
-//   player()~'dimension' == spawn:1 && distance(spawn:0, pos(bed)) <= 1;
-// );
 
 __on_player_right_clicks_block(player, item_tuple, hand, block, face, hitvec) -> (
   if (!global_enabled || !(block ~ 'bed'), return());
-  // print(distance(pos(player), pos(block)));
-  // print('isSpawnBed ' + isSpawnBed(block));
-  if (distance(pos(player), pos(block)) <= 2.5, return());
-  if (global_do_teleport && canSleep(), (
+
+  can_sleep = isNight() || isThunderstorm();
+
+  // when you can't sleep and this bed is already your respawn point, abort the click action
+  if (!can_sleep && isSpawnBed(block), return('cancel'));
+
+  // if you're near enough to the bed, just let the click event finish
+  if (distanceToBed(player, block) <= 3, return());
+
+  // You are too far away
+
+  // When teleportation is enabled and you can sleep, tp to the bed before the click event is finished
+  if (global_do_teleport && can_sleep, (
     run(str('tp %d %d %d', pos(block)));
     return();
   ));
 
+  // Abort the click event to suppress messages
   return('cancel');
 );
 
