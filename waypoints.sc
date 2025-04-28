@@ -1,7 +1,7 @@
 // Waypoints - Server wide waypoint system
 // Original by Firigion and boyenn
 // Fork by Rocka84 (foospils)
-// v1.0
+// v1.1
 
 global_waypoint_config = {
     // Config option to allow players to tp to the waypoints ( Either via `/waypoint list` or `/waypoint tp` ) 
@@ -42,58 +42,66 @@ if(global_settings==null, global_settings={});
 
 global_track = {};
 
-_get_list_item(name, data, tp_allowed, player) -> (
+_get_list_item(name, data, tp_allowed, show_author, player) -> (
     desc = if(data:1, '^g ' + data:1);
-    cond_desc = if(!tp_allowed, desc);
-    selected = if(global_track:player == name, 'd X', 'd \ \ ');
+    same_dim = player~'dimension' == data:3;
+
+    selected = if(global_track:player == name, 'e ➡', same_dim, 'w  ●', 'f  ●');
     if(global_track:player == name, (
         sel_action = str('!/%s track disable', system_info('app_name'));
-        sel_hover = str('^g Click to stop tracking')
-    ),(
+        sel_hover = str('^g Stop tracking')
+    ), same_dim, (
         sel_action = str('!/%s track %s', system_info('app_name'), name);
-        sel_hover = str('^g Click to start tracking')
+        sel_hover = str('^g Track')
     ));
+
+    coords = str('%s %s %s', map(data:0, round(_)));
+
     item = [
-      // 'w [', selected, sel_hover, sel_action, 'w ]  ',
-      'by '+name,
+      selected, sel_hover, sel_action,
     ];
 
     if(tp_allowed, (
-        item += str('!/%s tp %s', system_info('app_name'), name);
-        item += '^g Click to teleport!'
+        put(item, null, [
+          't  ⭇', str('!/%s tp %s', system_info('app_name'), name), '^g Teleport'
+        ], 'extend');
     ));
 
-    item += desc;
-    item += str('w : %s %s %s ', map(data:0, round(_)));
-    item += str('&%s %s %s ', map(data:0, round(_)));
-    item += '^g Click to copy coordinates!';
+    put(item, null, [
+      'yb  '+name, sel_hover, sel_action,
+      desc,
+      'w : ' + coords, '&' + coords, '^g Copy coords',
+    ], 'extend');
 
-    if(data:2,
-        item += 'g by ';
-        item += cond_desc;
-        item += 'gb '+data:2;
-        //if(!_is_tp_allowed(), item += desc)
-        item += cond_desc;
-    );
+    if(show_author && data:2, (
+      put(item, null, [
+        'g  by ', desc,
+        'gb '+data:2, desc,
+      ], 'extend');
+    ));
     item
 );
 
 list(author) -> (
     player = player();
     if(author != null && !has(global_authors, author), _error(author + ' has not set any waypoints'));
-    print(player, format('bc === List of current waypoints ==='));
+
+    print(player, format([' \n', 'c   ━═= ', 'bc Waypoints ','c =═━']));
     tp_allowed = _can_player_tp();
+    show_author = global_settings:str(player):'list_show_author';
+
     for(global_dimensions,
         current_dim = _;
         dim_already_printed = false;
         for(pairs(global_waypoints),
             [name, data]= _;
             if(current_dim== data:3 && (author == null || author==data:2),
-                if(!dim_already_printed, print(player, format('l in '+current_dim)); dim_already_printed=true); // to avoid printing dim header when filtering authors
-                print(player, format( _get_list_item(name, data, tp_allowed, player)))
+                if(!dim_already_printed, print(player, format('l \n🌍 '+current_dim)); dim_already_printed=true);
+                print(player, format(_get_list_item(name, data, tp_allowed, show_author, player)))
             )
         )
-    )
+    );
+    print(player, '');
 );
 
 del_prompt(name) -> (
@@ -142,6 +150,7 @@ add(name, poi_pos, description) -> (
         // else, add new one
         player = player();
         if(poi_pos==null, poi_pos=player~'pos');
+        poi_pos = map(poi_pos, floor(_)) + [0.499, 0, 0.499]; // snap to center of block
         global_waypoints:name = [poi_pos, description, str(player), player~'dimension'];
         global_authors += str(player);
         global_dimensions += player~'dimension';
@@ -172,10 +181,9 @@ tp(name) -> (
 track(name) -> (
     player = player();
     if(name==null, (
-            print(player, format('g Stopped tracking direction'))
+        print(player, format('g Stopped tracking direction'))
     ), has(global_waypoints, name) && global_waypoints:(name):3 == player~'dimension', (
         print(player, format(str('g Started tracking direction to %s', name)));
-        print(player, global_waypoints:(name):0);
     ), has(global_waypoints, name), ( // else, not a name nor null
         _error('Can\'t track ' + name + ', is\'s in another dimension')
     ),( // else, not a name nor null
@@ -203,8 +211,9 @@ _track_tick(player) -> (
     eyes = [0, player~'eye_height', 0];
     destination = global_waypoints:(global_track:player):0;
 
-    shape_distance = 2;
-    autodisable = global_settings:splayer:'autodisable';
+    shape_distance = player~'eye_height';
+    autodisable = global_settings:splayer:'track_autodisable';
+    indicator = global_settings:splayer:'track_indicator';
 
     segment = destination - (ppos + eyes);
     distance = sqrt((segment:0 * segment:0) + (segment:1 * segment:1) + (segment:2 * segment:2));
@@ -218,14 +227,17 @@ _track_tick(player) -> (
 
     direction = segment / distance;
 
-    if (true, (
-      if(distance <= shape_distance * 3, (
+    if (indicator == 'rendered' || indicator == 'both', (
+      if(distance <= shape_distance, (
         shape_pos = destination - ppos;
       ),(
         shape_pos = (shape_distance * direction) + eyes;
       ));
 
-      draw_shape([
+      text = ['y ' + global_track:player];
+      // if (indicator == 'rendered', text += 'w  (' + round(distance) + 'm)');
+
+      shapes = [
         [
           'sphere',
           global_waypoint_config:'track_ticks',
@@ -241,27 +253,45 @@ _track_tick(player) -> (
           global_waypoint_config:'track_ticks',
           'player', player,
           'follow', player,
-          'text', format('y ' + global_track:player),
-          // 'value', format(str('y %s %d', global_track:player, distance)),
           'pos', shape_pos,
           'height', 0.3,
+          'text', format(text),
           'size', 3,
         ],
-      ]);
+      ];
+      if (indicator == 'rendered', (
+        shapes += [
+          'label',
+          global_waypoint_config:'track_ticks',
+          'player', player,
+          'follow', player,
+          'pos', shape_pos,
+          'height', -0.3,
+          'text', format('w  (' + round(distance) + 'm)'),
+          'size', 2,
+        ],
+      ));
+      draw_shape(shapes);
     ));
 
-    if (true, (
+    if (indicator == 'text' || indicator == 'both', (
       dy = look:1 - direction:1;
       char_y = if(dy > 0.05, '↓', dy < -0.05, '↑', ' ');
-      distance_str = 'w ' + round(distance) + 'm';
+
+      display_data = ['lb    '];
+
+      if (indicator == 'text', display_data += 'y ' + global_track:player + ' ');
+      display_data += 'w ' + round(distance) + 'm ';
 
       scalar_xz = (look:0 * direction:2) - (look:2 * direction:0);
       if(scalar_xz < -0.05, (
-        display_data = ['yb <'+char_y+' ', distance_str, 'yb    '         ];
+        display_data:0 = 'lb <'+char_y+' ';
+        display_data  += 'lb   ';
       ), scalar_xz >  0.05, (
-        display_data = ['yb    ',          distance_str, 'yb  '+char_y+'>'];
+        display_data  += 'lb '+char_y+'>';
       ), (
-        display_data = ['yb  '+char_y+' ', distance_str, 'yb  '+char_y+' '];
+        display_data:0 = 'lb  '+char_y+' ';
+        display_data  += 'lb '+char_y+' ';
       ));
 
       display_title(player, 'actionbar', format(display_data));
@@ -276,7 +306,7 @@ help() -> (
     print(player, format('q \ \ del <waypoint>', 'fb \ | ', 'g delete existing waypoint'));
     print(player, format('q \ \ edit <waypoint> <description>', 'fb \ | ', 'g edit the description of an existing waypoint'));
     print(player, format('q \ \ list [<author>]', 'fb \ | ', 'g list all existing waypoints, optionally filtering by author'));
-    print(player, format('q \ \ settings track [<what> <value>]', 'fb \ | ', 'g sets strack options'));
+    print(player, format('q \ \ settings [<category> <what> <value>]', 'fb \ | ', 'g sets options'));
     if(_is_tp_allowed(),  print(player, format('q \ \ tp <waypoint>', 'fb \ | ', 'g teleport to given waypoint')));  
 );
 
@@ -292,36 +322,32 @@ _settings(key, value) -> (
     write_file('settings', 'JSON', global_settings);
 );
 global_default_settings = {
-    'type' -> {'name'->'particles', 'defaults'->['render', 'particle']},
-    'distance' -> {'name'->'distance', 'defaults'->['off', 'on']},
-    'autodisable' -> 'off',
+    'track_autodisable' -> 'off',
+    'track_indicator' -> 'both',
+    'list_show_author' -> false,
 };
 
 show_settings() -> (
     splayer = str(player());
-    print(splayer, format('b Your current settings are:'));
+    print(splayer, format('b Current settings:'));
     for(keys(global_default_settings),
-        name = _;
-        if(has(global_default_settings:name, 'name'),   //to grab the true name of a display name if they are different
-            key = global_default_settings:name:'name';
-            default = global_default_settings:name:'defaults',
-            
-            key = name;
-            default = global_default_settings:name
-        );
-        
+        key = _;
+        default = global_default_settings:key;
         is_default = !has(global_settings:splayer, key);
-        value = if(type(default)=='list',
-                    default:(global_settings:splayer:key),
-                    if(is_default, default, global_settings:splayer:key)
-        );
-        if(name=='autodisable'&&value==-1, value=default);
-        if(name=='length'&&value==-1, value='inf');
+        value = if(is_default, default, global_settings:splayer:key);
 
-        modify_cmd = str('?/%s settings track %s ', system_info('app_name'), name);
-        modify_tlt = '^g Click me to modify!';
+        if(key=='track_autodisable' && value==-1, value='off');
+
+        name = split('_', key);
+        category = name:0;
+        delete(name, 0);
+        name = join('_', name);
+
+        modify_cmd = str('?/%s settings %s %s ', system_info('app_name'), category, name);
+        modify_tlt = '^g Click to modify';
+
         print(splayer, format(
-            'bd\ \ '+name, modify_tlt, modify_cmd,
+            'bd\ \ '+category+' '+name, modify_tlt, modify_cmd,
             'f \ \ »  ', modify_tlt, modify_cmd,
             'q '+value,  modify_tlt, modify_cmd,
             if(is_default, 'g \ (Unmodified value)')
@@ -340,16 +366,16 @@ _get_commands() -> (
       'add <name> <pos> <description>' -> 'add',
       'edit <waypoint> <description>' -> 'edit',
       'list' -> ['list', null],
+      'list me' -> _() -> list(str(player())),
       'list <author>' -> 'list',
       'track <waypoint>' -> 'track',
       'track disable' -> ['track', null],
-      //'settings track line vector' ->             _()  -> _settings('vector', true),
-      //'settings track line direction' ->          _()  -> _settings('vector', false),
-      'settings track' -> 'show_settings',
-      'settings track type particle' ->           _()  -> _settings('particles',true),
-      'settings track type render' ->             _()  -> _settings('particles',false),
-      'settings track autodisable off' ->         _()  -> _settings('autodisable', -1),
-      'settings track autodisable <distance>' ->  _(d) -> _settings('autodisable', d),
+      'settings' -> 'show_settings',
+      'settings track indicator <type>' ->        _(t) -> _settings('track_indicator', t),
+      'settings track autodisable off' ->         _()  -> _settings('track_autodisable', -1),
+      'settings track autodisable <distance>' ->  _(d) -> _settings('track_autodisable', d),
+      'settings track autodisable <distance>' ->  _(d) -> _settings('track_autodisable', d),
+      'settings list  show_author <value>' ->     _(v) -> _settings('list_show_author', v),
     };
    if(_is_tp_allowed(), put(base_commands, 'tp <waypoint>', 'tp'));
    base_commands;
@@ -380,6 +406,13 @@ __config() -> {
             'type' -> 'int',
             'suggest' -> [5, 10],
             'min' -> 0
+      },
+      'value' -> {
+            'type' -> 'bool',
+      },
+      'type' -> {
+            'type' -> 'term',
+            'options' -> ['rendered', 'text', 'both'],
       },
    }
 };
