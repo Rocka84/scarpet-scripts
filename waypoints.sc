@@ -1,10 +1,10 @@
 // Waypoints - Server wide waypoint system
 // Original by Firigion and boyenn
 // Fork by Rocka84 (foospils)
-// v1.1
+// v1.2
 
 global_waypoint_config = {
-    // Config option to allow players to tp to the waypoints ( Either via `/waypoint list` or `/waypoint tp` ) 
+    // Config option to allow players to tp to the waypoints ( Either via `/waypoint list` or `/waypoint tp` )
     // 0 : NEVER
     // 1 : CREATIVE PLAYERS
     // 2 : CREATIVE AND SPECTATOR PLAYERS
@@ -13,34 +13,76 @@ global_waypoint_config = {
     'allow_tp' -> 2,
     'track_ticks' -> 1
 };
+config_file = read_file('config', 'JSON');
+if (config_file != null, (
+  global_waypoint_config = global_waypoint_config + config_file;
+));
+
+_set_config(key, value) -> (
+  if (player()~'permission_level' <= 1, (_error('not allowed'); return()));
+  if (!has(global_waypoint_config, key), (_error('unknown config key'); return()));
+
+  if (value == null, (
+    print(player(), format('bd\ \ ' + key, 'f \ \ »  ', 'q ' + global_waypoint_config:key));
+    return();
+  ));
+
+  global_waypoint_config:key = value;
+  write_file('config', 'JSON', global_waypoint_config);
+  run('/script load ' + system_info('app_name'));
+);
+
+
+global_default_settings = {
+    'track_autodisable' -> -1,
+    'track_indicator' -> 'both',
+    'list_show_author' -> false,
+    'list_default_dimension' -> 'current',
+};
+global_settings=read_file('settings', 'JSON');
+if(global_settings==null, global_settings={});
+
+_set_setting(key, value) -> (
+    splayer = str(player());
+    if(!has(global_settings, splayer), global_settings:splayer = {});
+
+    global_settings:splayer:key = value;
+    write_file('settings', 'JSON', global_settings);
+);
+
+_get_setting(player, key) -> (
+  splayer = str(player());
+  if(!has(global_settings, splayer), global_settings:splayer = {});
+  if(has(global_settings:splayer, key), global_settings:splayer:key, global_default_settings:key);
+);
+
 
 _can_player_tp() -> (
     global_waypoint_config:'allow_tp' == 4 ||
-    ( global_waypoint_config:'allow_tp' == 3 && player()~'permission_level' > 1) || 
+    ( global_waypoint_config:'allow_tp' == 3 && player()~'permission_level' > 1) ||
     ( global_waypoint_config:'allow_tp' == 1 && player()~'gamemode'=='creative') ||
     ( global_waypoint_config:'allow_tp' == 2 && player()~'gamemode_id'%2)
 );
 _is_tp_allowed() -> global_waypoint_config:'allow_tp'; // anything but 0 will give boolean true
 
-waypoints_file = read_file('waypoints','JSON');
-saveSystem() -> (
+global_authors = {};
+global_dimensions = {};
+global_track = {};
+
+global_waypoints = read_file('waypoints', 'JSON');
+if(global_waypoints == null, (
+  global_waypoints = {};
+),(
+  for(values(global_waypoints),
+      if( _:2 != null, global_authors += _:2);
+      global_dimensions += _:3
+  );
+));
+
+_save_waypoints() -> (
     write_file('waypoints', 'JSON', global_waypoints);
 );
-global_authors = {};
-global_dimensions = {'overworld'}; // so we only show waypoints in dimensions that have any; shoud also support custom ones
-if(waypoints_file == null, 
-    global_waypoints = {'Origin' ->[[0,100,0], 'Default waypoint', null, 'overworld']}; saveSystem(),
-    global_waypoints = waypoints_file; 
-    map(values(global_waypoints), 
-        if( (auth = _:2) != null, global_authors += auth);
-        global_dimensions += _:3
-    );
-);
 
-global_settings=read_file('settings', 'JSON');
-if(global_settings==null, global_settings={});
-
-global_track = {};
 
 _get_list_item(name, data, tp_allowed, show_author, player) -> (
     desc = if(data:1, '^g ' + data:1);
@@ -82,15 +124,44 @@ _get_list_item(name, data, tp_allowed, show_author, player) -> (
     item
 );
 
-list(author) -> (
+list(dimensions, author) -> (
     player = player();
-    if(author != null && !has(global_authors, author), _error(author + ' has not set any waypoints'));
-
     print(player, format([' \n', 'c   ━═= ', 'bc Waypoints ','c =═━']));
-    tp_allowed = _can_player_tp();
-    show_author = global_settings:str(player):'list_show_author';
 
-    for(global_dimensions,
+    if (length(global_waypoints) < 1, (
+      print(player, '\nThere aren\'t any waypoints yet.');
+      print(player, format('w Use ', 'be /' + system_info('app_name') + ' add', '?/' + system_info('app_name') + ' add', 'w  to create the first one!'));
+      return();
+    ));
+
+    if (
+      author == 'all',    author = null,
+      author == 'myself', author = str(player)
+    );
+    if (author != null, (
+      if(!has(global_authors, author), (
+        print(player, format('w \n Player ', 'bi ' + author, 'w  has not set any waypoints yet.'));
+        return();
+      ));
+      show_author = false;
+    ),(
+      show_author = _get_setting(player, 'list_show_author');
+    ));
+
+    if (dimensions == null || dimensions == 'null', dimensions = _get_setting(player, 'list_default_dimension'));
+    if (
+      dimensions == 'current',    dimensions = [player~'dimension'],
+      dimensions == 'all',        dimensions = global_dimensions,
+      type(dimensions) != 'list', dimensions = split(',', dimensions)
+    );
+
+    tp_allowed = _can_player_tp();
+
+    for (dimensions,
+        if (!has(global_dimensions, _), (
+          print(player, format('r \nThere are no waypoints in dimension ', 'br ' + _));
+          continue();
+        ));
         current_dim = _;
         dim_already_printed = false;
         for(pairs(global_waypoints),
@@ -116,6 +187,7 @@ del_prompt(name) -> (
 		str('!/%s cancel_del', system_info('app_name')),
 	))
 );
+
 confirm_del() -> (
 	if(global_to_delete,
 		del(global_to_delete);
@@ -123,6 +195,7 @@ confirm_del() -> (
 		_error('No deletion to confirm')
 	)
 );
+
 cancel_del() -> (
 	if(global_to_delete,
 		print(player(), str('Deletion of %s was cancelled', global_to_delete));
@@ -137,7 +210,7 @@ del(name) -> (
     	print(player(), 'Waypoint ' + name + ' deleted.'),
     	//else, failed
     	_error('Waypoint ' + name + ' does not exist'));
-    saveSystem();
+    _save_waypoints();
 );
 
 add(name, poi_pos, description) -> (
@@ -159,7 +232,7 @@ add(name, poi_pos, description) -> (
             str('bg %s ', name),
             str('g at %s %s %s', map(poi_pos, round(_))),
         ));
-        saveSystem();
+        _save_waypoints();
     );
 );
 
@@ -212,8 +285,8 @@ _track_tick(player) -> (
     destination = global_waypoints:(global_track:player):0;
 
     shape_distance = player~'eye_height';
-    autodisable = global_settings:splayer:'track_autodisable';
-    indicator = global_settings:splayer:'track_indicator';
+    autodisable = _get_setting(player, 'track_autodisable');
+    indicator = _get_setting(player, 'track_indicator');
 
     segment = destination - (ppos + eyes);
     distance = sqrt((segment:0 * segment:0) + (segment:1 * segment:1) + (segment:2 * segment:2));
@@ -305,7 +378,7 @@ help() -> (
     print(player, format('q \ \ add <name> [<pos>] [<description>]', 'fb \ | ', 'g add a new waypoint at given position with given description'));
     print(player, format('q \ \ del <waypoint>', 'fb \ | ', 'g delete existing waypoint'));
     print(player, format('q \ \ edit <waypoint> <description>', 'fb \ | ', 'g edit the description of an existing waypoint'));
-    print(player, format('q \ \ list [<author>]', 'fb \ | ', 'g list all existing waypoints, optionally filtering by author'));
+    print(player, format('q \ \ list [<dimension>] [<author>]', 'fb \ | ', 'g list all existing waypoints, optionally filtering by dimensions and/or author'));
     print(player, format('q \ \ settings [<category> <what> <value>]', 'fb \ | ', 'g sets options'));
     if(_is_tp_allowed(),  print(player, format('q \ \ tp <waypoint>', 'fb \ | ', 'g teleport to given waypoint')));  
 );
@@ -315,26 +388,19 @@ _error(msg)->(
     exit()
 );
 
-_settings(key, value) -> (
-    splayer = str(player());
-    if(!has(global_settings, splayer), global_settings:splayer = {});
-    global_settings:splayer:key = value;
-    write_file('settings', 'JSON', global_settings);
-);
-global_default_settings = {
-    'track_autodisable' -> 'off',
-    'track_indicator' -> 'both',
-    'list_show_author' -> false,
-};
-
 show_settings() -> (
     splayer = str(player());
+    if(!has(global_settings, splayer), global_settings:splayer = {});
     print(splayer, format('b Current settings:'));
     for(keys(global_default_settings),
         key = _;
-        default = global_default_settings:key;
-        is_default = !has(global_settings:splayer, key);
-        value = if(is_default, default, global_settings:splayer:key);
+        if (has(global_settings:splayer, key), (
+          is_default = false;
+          value = global_settings:splayer:key;
+        ),(
+          is_default = true;
+          value = global_default_settings:key;
+        ));
 
         if(key=='track_autodisable' && value==-1, value='off');
 
@@ -361,24 +427,33 @@ _get_commands() -> (
       'del <waypoint>' -> 'del_prompt',
       'confirm_del' -> 'confirm_del',
       'cancel_del' -> 'cancel_del',
+
       'add <name>' -> ['add', null, null],
       'add <name> <pos>' -> ['add', null],
       'add <name> <pos> <description>' -> 'add',
       'edit <waypoint> <description>' -> 'edit',
-      'list' -> ['list', null],
-      'list me' -> _() -> list(str(player())),
-      'list <author>' -> 'list',
+
+      'list'                      -> _()    -> list(null, null),
+      'list <dimension>'          -> _(d)   -> list(d, null),
+      'list <dimension> <author>' -> _(d,a) -> list(d, a),
+
       'track <waypoint>' -> 'track',
-      'track disable' -> ['track', null],
+      'track disable'    -> ['track', null],
+
       'settings' -> 'show_settings',
-      'settings track indicator <type>' ->        _(t) -> _settings('track_indicator', t),
-      'settings track autodisable off' ->         _()  -> _settings('track_autodisable', -1),
-      'settings track autodisable <distance>' ->  _(d) -> _settings('track_autodisable', d),
-      'settings track autodisable <distance>' ->  _(d) -> _settings('track_autodisable', d),
-      'settings list  show_author <value>' ->     _(v) -> _settings('list_show_author', v),
+      'settings track indicator <type>'       -> _(t) -> _set_setting('track_indicator', t),
+      'settings track autodisable off'        -> _()  -> _set_setting('track_autodisable', -1),
+      'settings track autodisable <distance>' -> _(d) -> _set_setting('track_autodisable', d),
+      'settings track autodisable <distance>' -> _(d) -> _set_setting('track_autodisable', d),
+      'settings list  show_author <value>'    -> _(v) -> _set_setting('list_show_author', v),
+      'settings list  default_dimension <dimension>' -> _(v) -> _set_setting('list_default_dimension', v),
     };
-   if(_is_tp_allowed(), put(base_commands, 'tp <waypoint>', 'tp'));
-   base_commands;
+    if(_is_tp_allowed(), put(base_commands, 'tp <waypoint>', 'tp'));
+    if (player()~'permission_level' > 1, (
+      put(base_commands, 'config <config>', ['_set_config', null]);
+      put(base_commands, 'config <config> <config_value>', '_set_config');
+    ));
+    base_commands;
 );
 
 __config() -> {
@@ -401,6 +476,20 @@ __config() -> {
       'author' -> {
             'type' -> 'term',
             'suggester'-> _(args) -> keys(global_authors),
+      'suggester'-> _(args) -> (
+              suggest = ['all', 'myself'];
+              put(suggest, 0, keys(global_authors), 'extend');
+              suggest;
+              // keys(global_authors);
+            ),
+      },
+      'dimension' -> {
+            'type' -> 'term',
+            'suggester'-> _(args) -> (
+              suggest = ['all', 'current'];
+              put(suggest, 0, keys(global_dimensions), 'extend');
+              suggest;
+            ),
       },
       'distance' -> {
             'type' -> 'int',
@@ -409,6 +498,13 @@ __config() -> {
       },
       'value' -> {
             'type' -> 'bool',
+      },
+      'config' -> {
+            'type' -> 'term',
+            'suggester'-> _(args) -> keys(global_waypoint_config),
+      },
+      'config_value' -> {
+            'type' -> 'term',
       },
       'type' -> {
             'type' -> 'term',
