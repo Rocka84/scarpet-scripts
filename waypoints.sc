@@ -1,7 +1,7 @@
 // Waypoints - Server wide waypoint system
 // Original by Firigion and boyenn
 // Fork by Rocka84 (foospils)
-// v1.2
+// v1.3
 
 global_waypoint_config = {
     // Config option to allow players to tp to the waypoints ( Either via `/waypoint list` or `/waypoint tp` )
@@ -19,15 +19,15 @@ if (config_file != null, (
 ));
 
 _set_config(key, value) -> (
-  if (player()~'permission_level' <= 1, (_error('not allowed'); return()));
-  if (!has(global_waypoint_config, key), (_error('unknown config key'); return()));
+  if (player()~'permission_level' < 2, _error('not allowed'));
+  if (!has(global_waypoint_config, key), _error('unknown config key'));
 
   if (value == null, (
     print(player(), format('bd\ \ ' + key, 'f \ \ »  ', 'q ' + global_waypoint_config:key));
     return();
   ));
 
-  global_waypoint_config:key = value;
+  global_waypoint_config:key = number(value);
   write_file('config', 'JSON', global_waypoint_config);
   run('/script load ' + system_info('app_name'));
 );
@@ -175,69 +175,65 @@ list(dimensions, author) -> (
     print(player, '');
 );
 
-del_prompt(name) -> (
-	global_to_delete = name;
-	print(player(), format(
-		'y Are you sure you want to delete ',
-		'yb '+name,
-		'y ? ',
-		'lb [YES] ',
-		str('!/%s confirm_del', system_info('app_name')),
-		'rb [NO]',
-		str('!/%s cancel_del', system_info('app_name')),
-	))
-);
+global_to_delete = null;
 
-confirm_del() -> (
-	if(global_to_delete,
-		del(global_to_delete);
-		global_to_delete = null,
-		_error('No deletion to confirm')
-	)
-);
+delete_waypoint(name) -> (
+  if (name == null, (
+	if (global_to_delete != null, print(player(), format('w Waypoint ', 'b ' + global_to_delete, 'y  not deleted.')));
+    global_to_delete = null;
 
-cancel_del() -> (
-	if(global_to_delete,
-		print(player(), str('Deletion of %s was cancelled', global_to_delete));
-		global_to_delete = null,
-		_error('No deletion to confirm')
-	)
-);
-
-del(name) -> (
-    if(delete(global_waypoints,name),
-    	global_track:player() = null;
-    	print(player(), 'Waypoint ' + name + ' deleted.'),
-    	//else, failed
-    	_error('Waypoint ' + name + ' does not exist'));
+  ), global_to_delete == name, (
+    global_to_delete = null;
+    delete(global_waypoints, name);
     _save_waypoints();
+    _exit('w Waypoint ', 'b ' + name, 'r  deleted.');
+
+  ), !has(global_waypoints, name), (
+    global_to_delete = null;
+    _exit('w Waypoint ', 'b ' + name, 'r  does not exist.');
+
+  ), player()~'permission_level' < 2 && global_waypoints:name:2 != str(player()), (
+    global_to_delete = null;
+    _exit('w Waypoint ', 'b ' + name, 'r  is not your\'s.');
+
+  ), (
+    global_to_delete = name;
+
+    print(player(), format(
+      'y Are you sure you want to delete ', 'yb '+name, 'y ? ',
+      'lb [YES] ', str('!/%s delete %s', system_info('app_name'), name),
+      'rb [NO]', str('!/%s delete', system_info('app_name')),
+    ));
+  ));
 );
 
 add(name, poi_pos, description) -> (
-    if(
-        name=='disable',
-        _error('That name is not available, it has a special funciton'),
+    if(name=='disable', (
+      _error('That name is not available, it has a special function')
+    ), has(global_waypoints, name), (
+      _exit('w Waypoint ', 'b ' + name, 'r  already exists.', 'w Delete it first.');
+    ));
 
-        has(global_waypoints, name), 
-        _error('You are trying to overwrite an existing waypoint. Delete it first.'),
-        // else, add new one
-        player = player();
-        if(poi_pos==null, poi_pos=player~'pos');
-        poi_pos = map(poi_pos, floor(_)) + [0.499, 0, 0.499]; // snap to center of block
-        global_waypoints:name = [poi_pos, description, str(player), player~'dimension'];
-        global_authors += str(player);
-        global_dimensions += player~'dimension';
-        print(player, format(
-            'g Added new waypoint ',
-            str('bg %s ', name),
-            str('g at %s %s %s', map(poi_pos, round(_))),
-        ));
-        _save_waypoints();
-    );
+    player = player();
+    if(poi_pos==null, poi_pos=player~'pos');
+    poi_pos = map(poi_pos, floor(_)) + [0.499, 0, 0.499]; // snap to center of block
+    global_waypoints:name = [poi_pos, description, str(player), player~'dimension'];
+    global_authors += str(player);
+    global_dimensions += player~'dimension';
+    print(player, format(
+        'g Added new waypoint ',
+        str('bg %s ', name),
+        str('g at %s %s %s', map(poi_pos, round(_))),
+    ));
+    _save_waypoints();
 );
 
 edit(name, description) -> (
-    if(!has(global_waypoints, name), _error('That waypoint does not exist'));
+    if(!has(global_waypoints, name), (
+      _exit('w Waypoint ', 'b ' + name, 'r  does not exist.');
+    ), player()~'permission_level' < 2 && global_waypoints:name:2 != str(player()), (
+      _exit('w Waypoint ', 'b ' + name, 'r  is not your\'s.');
+    ));
     global_waypoints:name:1 = description;
     print(player(), format('g Edited waypoint\'s description'))
 );
@@ -246,27 +242,37 @@ tp(name) -> (
     if(!_can_player_tp(), _error(str('%s players are not allowed to teleport', player()~'gamemode')) ); //for modes 1 and 2
     loc = global_waypoints:name:0;
     dim = global_waypoints:name:3;
-    if(loc == null, _error('That waypoint does not exist'));
+    if(loc == null, _exit('w Waypoint ', 'b ' + name, 'r  does not exist.'));
     print('Teleporting ' +player()+ ' to ' + name);
     run(str('execute in %s run tp %s %s %s %s', dim, player(), loc:0, loc:1, loc:2));
 );
 
 track(name) -> (
     player = player();
-    if(name==null, (
-        print(player, format('g Stopped tracking direction'))
-    ), has(global_waypoints, name) && global_waypoints:(name):3 == player~'dimension', (
-        print(player, format(str('g Started tracking direction to %s', name)));
-    ), has(global_waypoints, name), ( // else, not a name nor null
-        _error('Can\'t track ' + name + ', is\'s in another dimension')
-    ),( // else, not a name nor null
-        _error('Waypoint ' + name + ' does not exist')
-    ));
+    if(name == null, (
+      if (global_track:player != null, print(player, format('g Stopped tracking direction to ', 'gb ' + global_track:player)));
+      global_track:player = null;
 
-    global_track:player = name;
-    _track_tick(player);
+    ), !has(global_waypoints, name), (
+      _exit('w Waypoint ', 'b ' + name, 'r  does not exist.');
+
+    // ), global_waypoints:(name):3 != player~'dimension', (
+    //   _exit('w Waypoint ', 'b ' + name, 'r  is in another dimension.');
+
+    ), global_track:player != name, (
+      print(player, format('g Tracking direction to ', 'gb ' + name));
+      if (global_track:player == null, (
+        global_track:player = name;
+        _track_tick(player);
+      ), (
+        global_track:player = name;
+      ));
+    ));
 );
 
+// __on_player_changes_dimension(player, from_pos, from_dimension, to_pos, to_dimension) -> (
+//   if (global_track:player, run('execute as ' + player + ' run ' + system_info('app_name') + ' track disable'));
+// );
 
 _track_tick(player) -> (
     splayer = str(player);
@@ -292,7 +298,6 @@ _track_tick(player) -> (
     distance = sqrt((segment:0 * segment:0) + (segment:1 * segment:1) + (segment:2 * segment:2));
 
     if(autodisable > -1 && distance <= autodisable, (
-        // print(player, format('g You reached your destination!'));
         display_title(player, 'actionbar', format('g You reached your destination!'));
         global_track:player = null;
         return();
@@ -384,8 +389,12 @@ help() -> (
 );
 
 _error(msg)->(
-    print(player(), format(str('r %s', msg)));
-    exit()
+    _exit(str('r %s', msg))
+);
+
+_exit(...msg) -> (
+  print(player(), format(msg));
+  exit();
 );
 
 show_settings() -> (
@@ -424,9 +433,8 @@ show_settings() -> (
 _get_commands() -> (
     base_commands = {
       '' -> 'help',
-      'del <waypoint>' -> 'del_prompt',
-      'confirm_del' -> 'confirm_del',
-      'cancel_del' -> 'cancel_del',
+      'delete' -> ['delete_waypoint', null],
+      'delete <waypoint>' -> 'delete_waypoint',
 
       'add <name>' -> ['add', null, null],
       'add <name> <pos>' -> ['add', null],
@@ -475,12 +483,10 @@ __config() -> {
       },
       'author' -> {
             'type' -> 'term',
-            'suggester'-> _(args) -> keys(global_authors),
-      'suggester'-> _(args) -> (
+            'suggester'-> _(args) -> (
               suggest = ['all', 'myself'];
               put(suggest, 0, keys(global_authors), 'extend');
               suggest;
-              // keys(global_authors);
             ),
       },
       'dimension' -> {
@@ -512,3 +518,4 @@ __config() -> {
       },
    }
 };
+
