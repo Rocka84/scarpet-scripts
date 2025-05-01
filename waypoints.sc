@@ -1,7 +1,7 @@
 // Waypoints - Server wide waypoint system
 // Original by Firigion and boyenn
 // Fork by Rocka84 (foospils)
-// v1.3.1
+// v1.4
 
 global_waypoint_config = {
   // Config option to allow players to tp to the waypoints ( Either via `/waypoint list` or `/waypoint tp` )
@@ -10,7 +10,7 @@ global_waypoint_config = {
   // 2 : CREATIVE AND SPECTATOR PLAYERS
   // 3 : OP PLAYERS
   // 4 : ALWAYS
-  'allow_tp' -> 2,
+  'allow_tp' -> 1,
   'track_ticks' -> 1
 };
 
@@ -39,6 +39,7 @@ global_default_settings = {
   'track_indicator' -> 'both',
   'list_show_author' -> false,
   'list_default_dimension' -> 'current',
+  'list_sort_by' -> 'name',
 };
 
 global_settings=read_file('settings', 'JSON');
@@ -48,7 +49,10 @@ _set_setting(key, value) -> (
   splayer = str(player());
   if(!has(global_settings, splayer), global_settings:splayer = {});
 
-  global_settings:splayer:key = value;
+  if (value == global_default_settings:key,
+    delete(global_settings:splayer, key),
+    global_settings:splayer:key = value
+  );
   write_file('settings', 'JSON', global_settings);
 );
 
@@ -87,15 +91,19 @@ _can_player_tp() -> (
 _is_tp_allowed() -> global_waypoint_config:'allow_tp'; // anything but 0 will give boolean true
 
 
+_distance(a, b) -> (
+  segment = b - a;
+  sqrt((segment:0 * segment:0) + (segment:1 * segment:1) + (segment:2 * segment:2));
+);
+
 _get_list_item(name, data, tp_allowed, show_author, player) -> (
   desc = if(data:1, '^g ' + data:1);
-  same_dim = player~'dimension' == data:3;
 
-  selected = if(global_track:player == name, 'e ➡', same_dim, 'w  ●', 'f  ●');
+  selected = if(global_track:player == name, 'e ➡', 'w  ●');
   if(global_track:player == name, (
     sel_action = str('!/%s track disable', global_app_name);
     sel_hover = str('^g Stop tracking')
-  ), same_dim, (
+  ), (
     sel_action = str('!/%s track %s', global_app_name, name);
     sel_hover = str('^g Track')
   ));
@@ -115,7 +123,7 @@ _get_list_item(name, data, tp_allowed, show_author, player) -> (
   put(item, null, [
     'yb  '+name, sel_hover, sel_action,
     desc,
-    'w : ' + coords, '&' + coords, '^g Copy coords',
+    'w : ' + coords + ' (' + round(_distance(player~'pos', data:0)) + 'm)', '&' + coords, '^g Copy coords',
   ], 'extend');
 
   if(show_author && data:2, (
@@ -161,6 +169,12 @@ list(dimensions, author) -> (
 
   tp_allowed = _can_player_tp();
 
+  if (_get_setting(player, 'list_sort_by') == 'distance', (
+    waypoint_names = sort_key(keys(global_waypoints), _distance(player~'pos', global_waypoints:_:0));
+  ),(
+    waypoint_names = sort(keys(global_waypoints));
+  ));
+
   for (dimensions, (
     if (!has(global_dimensions, _), (
       print(player, format('r \nThere are no waypoints in dimension ', 'br ' + _));
@@ -168,14 +182,13 @@ list(dimensions, author) -> (
     ));
     current_dim = _;
     dim_already_printed = false;
-    for(pairs(global_waypoints), (
-      [name, data]= _;
-      if(current_dim == data:3 && (author == null || author==data:2), (
-        if(!dim_already_printed, (
+    for(waypoint_names, (
+      if (current_dim == global_waypoints:_:3 && (author == null || author == global_waypoints:_:2), (
+        if (!dim_already_printed, (
           print(player, format('l \n🌍 '+current_dim));
           dim_already_printed=true;
         ));
-        print(player, format(_get_list_item(name, data, tp_allowed, show_author, player)));
+        print(player, format(_get_list_item(_, global_waypoints:_, tp_allowed, show_author, player)));
       ));
     ));
   ));
@@ -220,8 +233,7 @@ add(name, poi_pos, description) -> (
   ));
 
   player = player();
-  if(poi_pos==null, poi_pos=player~'pos');
-  poi_pos = map(poi_pos, floor(_)) + [0.499, 0, 0.499]; // snap to center of block
+  if (poi_pos==null, poi_pos = map(player~'pos', floor(_)) + [0.499, 0, 0.499]); // snap to center of block under player
   global_waypoints:name = [poi_pos, description, str(player), player~'dimension'];
   global_authors += str(player);
   global_dimensions += player~'dimension';
@@ -244,7 +256,7 @@ edit(name, description) -> (
 );
 
 tp(name) -> (
-  if(!_can_player_tp(), _error(str('%s players are not allowed to teleport', player()~'gamemode')) ); //for modes 1 and 2
+  if(!_can_player_tp(), _error(str('Teleporting not allowed in %s mode', player()~'gamemode')) ); //for modes 1 and 2
   loc = global_waypoints:name:0;
   dim = global_waypoints:name:3;
   if(loc == null, _exit('w Waypoint ', 'b ' + name, 'r  does not exist.'));
@@ -290,6 +302,9 @@ _track_tick(player) -> (
 
   if(global_waypoints:(global_track:player):3 != player~'dimension', return());
 
+  // track_ticks = max(global_waypoint_config:'track_ticks', system_info('server_last_tick_times'):0);
+  track_ticks = global_waypoint_config:'track_ticks';
+
   ppos = player~'pos';
   look = player~'look';
   eyes = [0, player~'eye_height', 0];
@@ -299,8 +314,7 @@ _track_tick(player) -> (
   autodisable = _get_setting(player, 'track_autodisable');
   indicator = _get_setting(player, 'track_indicator');
 
-  segment = destination - (ppos + eyes);
-  distance = sqrt((segment:0 * segment:0) + (segment:1 * segment:1) + (segment:2 * segment:2));
+  distance = _distance(ppos, destination); //distance from players feet to destination
 
   if(autodisable > -1 && distance <= autodisable, (
     display_title(player, 'actionbar', format('g You reached your destination!'));
@@ -308,49 +322,53 @@ _track_tick(player) -> (
     return();
   ));
 
-  direction = segment / distance;
+  segment = destination - (ppos + eyes); //vector from players eyes to the destination
+  // eye_distance = sqrt((segment:0 * segment:0) + (segment:1 * segment:1) + (segment:2 * segment:2)); //distance from players eyes to destination
+  direction = segment / sqrt((segment:0 * segment:0) + (segment:1 * segment:1) + (segment:2 * segment:2)); //whole vector divided by its length
+
 
   if (indicator == 'rendered' || indicator == 'both', (
     if(distance <= shape_distance, (
       shape_pos = destination - ppos;
     ),(
-      shape_pos = (shape_distance * direction) + eyes;
+      shape_pos = (shape_distance * direction) + eyes; //draw in _direction_ with _shape_distance_ relative to players _eyes_.
     ));
 
-    text = ['y ' + global_track:player];
+    // text = ['y ' + global_track:player];
     // if (indicator == 'rendered', text += 'w  (' + round(distance) + 'm)');
 
     shapes = [
       [
         'sphere',
-        global_waypoint_config:'track_ticks',
+        track_ticks,
         'player', player,
         'follow', player,
         'center', shape_pos,
-        'radius', 0.05,
+        'radius', 0.03,
         'color', 0x000000FF,
         'fill', 0xEE00FF44,
       ],
       [
         'label',
-        global_waypoint_config:'track_ticks',
+        track_ticks,
         'player', player,
         'follow', player,
         'pos', shape_pos,
         'height', 0.3,
-        'text', format(text),
+        'text', format(['y ' + global_track:player]),
         'size', 3,
       ],
     ];
     if (indicator == 'rendered', (
       shapes += [
         'label',
-        global_waypoint_config:'track_ticks',
+        track_ticks,
         'player', player,
         'follow', player,
         'pos', shape_pos,
         'height', -0.3,
-        'text', format('w  (' + round(distance) + 'm)'),
+        // 'text', format('w (' + round(distance) + 'm)'),
+        'text', '(' + round(distance) + 'm)',
         'size', 2,
       ],
     ));
@@ -361,13 +379,17 @@ _track_tick(player) -> (
     dy = look:1 - direction:1;
     char_y = if(dy > 0.05, '↓', dy < -0.05, '↑', ' ');
 
+    if (floor(ppos:1) == floor(destination:1), char_y = '🚩');
     display_data = ['lb    '];
 
     if (indicator == 'text', display_data += 'y ' + global_track:player + ' ');
     display_data += 'w ' + round(distance) + 'm ';
 
     scalar_xz = (look:0 * direction:2) - (look:2 * direction:0);
-    if(scalar_xz < -0.05, (
+    if(floor(ppos:0) == floor(destination:0) && floor(ppos:2) == floor(destination:2), (
+      display_data:0 = 'lb 🚩'+char_y+' ';
+      display_data  += 'lb '+char_y+'🚩';
+    ), scalar_xz < -0.05, (
       display_data:0 = 'lb <'+char_y+' ';
       display_data  += 'lb   ';
     ), scalar_xz >  0.05, (
@@ -406,7 +428,7 @@ show_settings() -> (
   splayer = str(player());
   if(!has(global_settings, splayer), global_settings:splayer = {});
   print(splayer, format('b Current settings:'));
-  for(keys(global_default_settings), (
+  for(sort(keys(global_default_settings)), (
     key = _;
     if (has(global_settings:splayer, key), (
       is_default = false;
@@ -460,6 +482,8 @@ _get_commands() -> (
     'settings track autodisable <distance>' -> _(d) -> _set_setting('track_autodisable', d),
     'settings list  show_author <value>'    -> _(v) -> _set_setting('list_show_author', v),
     'settings list  default_dimension <dimension>' -> _(v) -> _set_setting('list_default_dimension', v),
+    'settings list  sort_by distance'       -> _()  -> _set_setting('list_sort_by', 'distance'),
+    'settings list  sort_by name'           -> _()  -> _set_setting('list_sort_by', 'name'),
   };
   if(_is_tp_allowed(), put(base_commands, 'tp <waypoint>', 'tp'));
   if (player()~'permission_level' > 1, (
