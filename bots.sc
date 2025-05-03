@@ -4,13 +4,19 @@
 // based on keepalive.sc by gnembon
 // v1.3
 
+global_app_name = system_info('app_name');
+global_required_permission = 5;
+
 _print(msg) -> if(player(), print(player(), msg), print(msg));
+_print_formatted(...msg) -> _print(format(['bc '  + global_app_name + ': ', ...msg]));
 _error(msg) -> (
-  _print(format('br Bots: ', 'r ' + msg));
+  _print(format('br '  + global_app_name + ': ', 'r ' + msg));
   exit();
 );
 
-global_required_permission = 5;
+_set_name(set) -> 'by 📂 ' + set;
+_bot_name(bot) -> 'bl 🤖 ' + bot;
+
 schedule(0, _() -> (
   setting = run('carpet commandPlayer'):1:4;
   if (
@@ -30,27 +36,23 @@ __config() -> {
   'scope' -> 'global',
   'commands' ->
   {
-    '' -> _() -> _print('Manage sets of scarpet players a.k.a. bots'),
+    '' -> _() -> _print_formatted('w Manage sets of scarpet players a.k.a. bots'),
     'list' -> 'list_sets',
-    'save' -> _() -> save_set('*' + str(player())),
     'save <set>' -> 'save_set',
-    'apply' -> _() -> apply_set('*' + str(player())),
     'apply <set>' -> 'apply_set',
-    'delete' -> _() -> delete_set('*' + str(player())),
     'delete <set>' -> 'delete_set',
-    'kill_set' -> _() -> kill_set('*' + str(player())),
-    'kill_set <set>' -> 'kill_set',
-    'show' -> _() -> show_set('*' + str(player())),
+    'delete' -> ['delete_set', null],
     'show <set>' -> 'show_set',
     'kill <bot>' -> _(b) -> if(_check_permission(), kill(b), _error('Not allowed')),
-    'kill all' -> 'kill_all',
+    'kill _all' -> 'kill_all',
+    'kill _set <set>' -> 'kill_set',
     'info <bot>' -> 'info',
-    'info all' -> 'info_all',
+    'info _all' -> 'info_all',
   },
   'arguments' -> {
     'set' -> {
       'type' -> 'term',
-      'suggester'-> _(args) -> filter(keys(global_bots), !(_ ~ '^[\\*#]')),
+      'suggester'-> _(args) -> filter(keys(global_bots), !(_ ~ '^#')),
     },
     'bot' -> {
       'type' -> 'term',
@@ -98,7 +100,7 @@ save_set(set) -> (
   for (filter(player('all'), _~'player_type' == 'fake'), global_bots:set += _bot_data(_));
   _persist();
 
-  _print(format('b 📂 ', 'yb ' + set, 'w  saved.'));
+  _print_formatted(_set_name(set), 'w  saved.');
 );
 
 global_tries = {};
@@ -133,7 +135,6 @@ __configure_bot_when_available(data) -> (
   ));
 
   run(str('player %s %s', data:'n', if(data:'c', 'sneak', 'unsneak')));
-  // schedule(1, _(c) -> run(c), str('player %s %s', data:'n', if(data:'c', 'sneak', 'unsneak')));
 
   selected_slot = data:'s'||0;
   modify(p, 'selected_slot', selected_slot);
@@ -157,30 +158,51 @@ apply_set(set) -> (
     __configure_bot_when_available(_);
   ));
 
-  _print(format('b 📂 ', 'yb ' + set, 'w  applied.'));
+  _print_formatted(_set_name(set), 'w  applied.');
 );
+
+global_to_delete = null;
 
 delete_set(set) -> (
   if (!_check_permission(), _error('Not allowed'));
 
-  delete(global_bots, set);
-  _persist();
+  if (set == null, (
+	if (global_to_delete != null, _print_formatted(_set_name(global_to_delete), 'y  not deleted.'));
+    global_to_delete = null;
 
-  _print(format('b 📂 ', 'yb ' + set, 'w  deleted.'));
+  ), global_to_delete == set, (
+    global_to_delete = null;
+    delete(global_bots, set);
+    _persist();
+    _print_formatted(_set_name(set), 'r  deleted.');
+
+  ), !has(global_bots, set), (
+    global_to_delete = null;
+    _print_formatted(_set_name(set), 'r  does not exist.');
+
+  ), (
+    global_to_delete = set;
+
+    _print_formatted(
+      'w Are you sure you want to delete ', _set_name(set), 'w ? ',
+      'lb [YES] ', str('!/%s delete %s', global_app_name, set),
+      'rb [NO]', str('!/%s delete', global_app_name),
+    );
+  ));
 );
 
 kill_set(set) -> (
   if (!_check_permission(), _error('Not allowed'));
 
   for (global_bots:set, kill(_:'n'));
-  _print(format('b 📂 ', 'yb ' + set, 'w  bots killed.'));
+  _print_formatted('w Bots in ', _set_name(set), 'w  killed.');
 );
 
 kill_all() -> (
   if (!_check_permission(), _error('Not allowed'));
 
   for (filter(player('all'), _~'player_type' == 'fake'), kill(_~'name'));
-  _print(format('b 🤖 ', 'ybi All', 'w  bots killed.'));
+  _print_formatted(_bot_name('All'), 'w  bots killed.');
 );
 
 kill(bot) -> (
@@ -198,19 +220,15 @@ __on_server_starts() -> schedule(40, 'apply_set', '#autosave');
 
 
 list_sets() -> (
-  if (global_bots:('*'+player()~'name'), _print(format('w 📂 ', 'iyb Your set', 'w  (' + length(global_bots:('*'+player()~'name')) + ' Bots)')));
   for(pairs(global_bots), (
-    if (_:0 ~ '^[\\*#]', continue());
-    _print(format('w 📂 ', 'by ' + _:0, 'w  (' + length(_:1) + ' Bots)'))
+    if (_:0 ~ '^#', continue());
+    _print(format(_set_name(_:0), 'w  (' + length(_:1) + ' Bots)'))
   ));
   _print('');
 );
 
 show_set(set) -> (
-  _print(format([
-    'b 📂 ',
-    if (set == '*' + player()~'name', 'yb Your set', 'yb ' + set)
-  ]));
+  _print(format(_set_name(set)));
   for(global_bots:set, _show_bot(_));
   _print('');
 );
@@ -227,7 +245,7 @@ _round2(in) -> round(in*100)/100;
 
 _show_bot(bot) -> (
   data = [
-    'w 🤖 ',  'bl ' + bot:'n',
+    _bot_name(bot:'n'),
     'w  at ', 'be ' + _round2(bot:'x') + ' ' + _round2(bot:'y') + ' ' + _round2(bot:'z'),
     'w  in ', 'bv ' + bot:'d',
     'w  in ', 'bm ' + bot:'g', 'w  mode',
