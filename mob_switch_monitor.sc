@@ -1,6 +1,6 @@
 // Mob Switch Status Monitor
 // By Rocka84 (foospils)
-// v1.1
+// v1.1.1
 
 __config() -> {
   'stay_loaded' -> true,
@@ -10,13 +10,12 @@ __config() -> {
     '' -> _() -> print('Mob Switch Monitor'),
     'setPosition' -> _() -> set_switch_pos(pos(player())),
     'setPosition <pos>' -> _(p) -> set_switch_pos(p),
-    // 'isActive' -> _() -> if(global_switch_active, print('Mob Switch active'), print('Mob Switch NOT active')),
-    // 'check' -> _() -> check_mob_switch(),
-    // 'tp' -> _() -> run(str('tp @p %d %d %d', global_switch_pos + [0, 0, 1])),
-    // 'bot spawn' -> _() -> run(str('player Alex spawn at %d %d %d', global_switch_pos + [0, 2, -1])),
+    // 'isActive' -> _() -> (if(global_switch_active, print('Mob Switch active'), print('Mob Switch NOT active')); return(global_switch_active)),
+    // 'tp' -> _() -> run(str('tp @p %d %d %d', global_switch_pos)),
+    // 'bot spawn' -> _() -> run(str('player Alex spawn at %d %d %d', global_switch_pos)),
     // 'bot kill' -> _() -> run('player Alex kill'),
-    'test' -> _() -> (print(str('Position: %s  Active: %b', global_switch_pos, global_switch_active)); display_mob_switch(player(), true)),
-    'test <player>' -> _(player) -> (print(player, str('Position: %s  Active: %b', global_switch_pos, global_switch_active)); display_mob_switch(player, true)),
+    'test' -> _() -> test(player()),
+    'test <player>' -> _(p) -> test(p),
   },
   'arguments' -> {
     'pos' -> { 'type' -> 'pos' },
@@ -71,6 +70,10 @@ display_mob_switch(players, announce) -> (
   ));
 );
 
+test(player) -> (
+  print(player, str('Position: %s  Active: %b', global_switch_pos, global_switch_active));
+  display_mob_switch(player, true)
+);
 
 __on_tick() -> (
   if (tick_time() % global_check_interval == 0, check_mob_switch());
