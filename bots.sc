@@ -2,7 +2,7 @@
 //  save and restore sets of bots (carpet players) and auto-restore bots on server restart
 // by Rocka84 (foospils)
 // based on keepalive.sc by gnembon
-// v1.3
+// v1.4
 
 global_app_name = system_info('app_name');
 global_required_permission = 5;
@@ -90,6 +90,8 @@ _bot_data(p) -> (
     'l' -> _get_hand(p, 'offhand'),
     's' -> p~'selected_slot',
     'c' -> p~'sneaking',
+    'at' -> p~'swinging',
+    'u' -> false,
   };
 );
 
@@ -101,6 +103,10 @@ save_set(set) -> (
   _persist();
 
   _print_formatted(_set_name(set), 'w  saved.');
+);
+
+_set_hand(p, slot, data) -> (
+  if (data, inventory_set(p, slot, number(data:1), data:0), inventory_set(p, slot, 0));
 );
 
 global_tries = {};
@@ -129,8 +135,8 @@ __configure_bot_when_available(data) -> (
     if (mounted, (
       schedule(1, _(p, m) -> modify(p, 'mount', m), p, mounted:0);
     ), (
-      schedule(10, _(p, m) -> modify(p, 'pos', m), p, data:'m');
-      schedule(12, _(n) -> run(str('player %s mount', n)), data:'n');
+      schedule(5, _(p, m) -> modify(p, 'pos', m), p, data:'m');
+      schedule(6, _(n) -> run(str('player %s mount', n)), data:'n');
     ));
   ));
 
@@ -138,8 +144,11 @@ __configure_bot_when_available(data) -> (
 
   selected_slot = data:'s'||0;
   modify(p, 'selected_slot', selected_slot);
-  if (data:'l', inventory_set(p, -1, number(data:'l':1), data:'l':0), inventory_set(p, -1, 0));
-  if (data:'r', inventory_set(p, selected_slot, number(data:'r':1), data:'r':0), inventory_set(p, selected_slot, 0));
+  _set_hand(p, selected_slot, data:'r');
+  _set_hand(p, -1, data:'l');
+
+  if (data:'at', run(str('player %s attack continuous', data:'n')));
+  if (data:'u', run(str('player %s use continuous', data:'n')));
 );
 
 apply_set(set) -> (
@@ -150,6 +159,7 @@ apply_set(set) -> (
 
     if (p, (
       if (p~'player_type' != 'fake', continue());
+      run(str('/player %s stop', _:'n'));
       run(str('/execute in %s run teleport %s %f %f %f %f %f', _:'d', _:'n', _:'x', _:'y', _:'z', _:'a', _:'p'));
     ),(
       run(str('player %s spawn at %f %f %f facing %f %f in %s', _:'n', _:'x', _:'y', _:'z', _:'a', _:'p', _:'d'));
@@ -206,6 +216,7 @@ kill_all() -> (
 );
 
 kill(bot) -> (
+  run('player ' + bot + ' stop');
   run('player ' + bot + ' dismount');
   run('player ' + bot + ' kill');
 );
