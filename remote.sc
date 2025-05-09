@@ -1,28 +1,29 @@
 // Remote
 // By Rocka84 (foospils)
-// v1.0
+// v1.1
 
 __config() -> {
   'stay_loaded' -> true,
   'scope' -> 'global',
   'commands' -> {
     '' -> _() -> print('Remote'),
-    'test' -> 'test',
-    'remote_toggle_lever' -> _() -> remote_toggle_lever(player()),
-    'give' -> _() -> give_remote_lever(player()),
-    // 'replace' -> _() -> replace_remote_lever(player(), player()~'pos'),
-    'bind' -> _() -> bind_lever(player(), find_lever(player), null),
-    'bind <name>' -> _(name) -> bind_lever(player(), find_lever(player), name),
-    'toggle_lever' -> _() -> toggle_lever(find_lever(player())),
-    'push_button' -> _() -> push_button(find_button(player())),
+    'info' -> 'info',
+    'bind'        -> _()  -> autobind_mainhand(player(), null),
+    'bind <name>' -> _(n) -> autobind_mainhand(player(), n),
+    'give'        -> _()  -> give_lever_remote(player()),
+    // 'use_lever_remote' -> _() -> use_lever_remote(query(player(), 'holds', 'mainhand')),
+    // 'toggle_lever' -> _() -> toggle_lever(find_lever(player())),
+    // 'push_button' -> _() -> push_button(find_button(player())),
   }
 };
 
-global_data_remote_lever = {
+global_data_lever_remote = {
   'id' -> 'minecraft:sugar',
   'components' -> {
     'minecraft:custom_data' -> {
-      'remote_lever' -> {}
+      'remote' -> {
+        'type' -> 'lever'
+      }
     },
     'minecraft:item_model' -> 'minecraft:lever',
     'minecraft:enchantments' -> {
@@ -31,71 +32,101 @@ global_data_remote_lever = {
       },
       'show_in_tooltip' -> false
     },
-    'minecraft:custom_name' -> '[{"text":"Remote Lever","italic":false}]',
+    'minecraft:custom_name' -> '[{"text":"Lever Remote","italic":false}]',
     'minecraft:lore' -> ['{"text":"Target not set","italic":false}']
   }
 };
 
-_get_item_data(player) -> (
-  item = query(player, 'holds', 'mainhand');
+run('datapack disable ' + '"file/scarpet_' + system_info('app_name') + '.zip"');
+run('datapack list');
+create_datapack('scarpet_' + system_info('app_name'), {'data' -> {'minecraft' -> {
+  'recipe' -> {
+    'remotelever.json' -> {
+      'type' -> 'minecraft:crafting_shaped',
+      'pattern' -> [
+        's',
+        'g'
+      ],
+      'key' -> {
+        'g' -> 'minecraft:gold_block',
+        's' -> 'minecraft:stick'
+      },
+      'result' -> global_data_lever_remote
+    }
+  }
+}}});
+
+_parse_item_data(item) -> (
   if (!item, return(null));
-  // if (!item || !item:0 == 'sugar', return());
+  if (type(item:2)=='nbt', item:2 = parse_nbt(item:2));
   data = item:2:'components':'minecraft:custom_data';
   if (!data, return(null));
   data = parse_nbt(data);
   if (!data, return(null));
 
-  data:'remote_lever'
-};
+  data:'remote';
+);
 
-_create_item(item, data) -> (
+_item_to_string(item, data) -> (
   item + '[' + join(',', map(pairs(data), _:0 + '=' + encode_nbt(_:1))) + ']';
 );
 
-_create_remote_lever(pos, name) -> (
-  components = copy(global_data_remote_lever:'components');
+_ucfirst(in) -> upper(slice(in, 0, 1)) + slice(in, 1);
 
-  if (name, components:'minecraft:custom_name' = encode_json([{'text' -> name, 'italic' -> false}]));
-  components:'minecraft:custom_data':'remote_lever' = { 'pos' -> pos };
-  components:'minecraft:lore' = [encode_json([{'text' -> 'Target: ' + join(' ', map(pos, round(_))), 'italic' -> false}])];
-
-  _create_item(global_data_remote_lever:'id', components);
-);
-
-give_remote_lever(player) -> (
-  run('/give ' + player~'name' + ' ' + _create_remote_lever(player()~'pos', null));
-);
-
-bind_lever(player, pos, name) -> (
-  data = _get_item_data(player);
-  if (data == null, (
-    print('Non suitable item');
+_get_bound_item(item, block, name) -> (
+  item_data = _parse_item_data(item);
+  if (block ~ (item_data:'type') == null, (
+    print(player(), 'Can\'t bind this item to this block!');
     return();
   ));
 
-  if (type(pos) == 'block', pos = pos(pos));
-  if (pos == null, pos = player~'pos');
-  run('/item replace entity ' + player~'name' + ' hotbar.' + player()~'selected_slot' + ' with ' + _create_remote_lever(pos, name));
+  pos = pos(block);
+
+  data = item:2:'components';
+  if (name, name = _ucfirst(item_data:'type') + ' Remote' );
+  data:'minecraft:custom_name' = encode_json([{'text' -> name, 'italic' -> false}]);
+  data:'minecraft:lore' = [encode_json([{'text' -> 'Target: ' + join(' ', map(pos, round(_))), 'italic' -> false}])];
+  data:'minecraft:custom_data':'remote':'pos' = pos;
+
+  _item_to_string(item:0, data);
 );
 
+_bind_inventory(player, slot, block, name) -> (
+  item = _get_bound_item(inventory_get(player, slot), block, name);
+  if (!item, return());
+  slot_str = if (slot<9, ' hotbar.' + slot, ' inventory.' + (slot - 8));
+  run('/item replace entity ' + player~'name' + slot_str + ' with ' + item);
+);
 
-find_lever(player) -> (
-  scan(player()~'pos', [2,2,2], if(_=='lever', block=_));
+_find_target(player, type) -> (
+  scan(player()~'pos', [2,2,2], if(_ ~ type != null, block=_));
   block;
 );
 
-find_button(player) -> (
-  scan(player()~'pos', [2,2,2], if(_ ~ 'button' != null, block=_));
-  block;
+bind_mainhand(player, block, name) -> (
+  _bind_inventory(player, player~'selected_slot', block, name);
 );
 
-
-test() -> (
-  print(_get_item_data(player()));
+info() -> (
+  print(_parse_item_data(query(player(), 'holds', 'mainhand')));
 );
 
-remote_toggle_lever(player) -> (
-  data = _get_item_data(player);
+autobind_mainhand(player, name) -> (
+  item_data = _parse_item_data(query(player, 'holds', 'mainhand'));
+  if (!item_data, return());
+
+  block = _find_target(player, item_data:'type');
+  if (!block, return());
+
+  bind_mainhand(player, block, name);
+);
+
+give_lever_remote(player) -> (
+  run('/give ' + player~'name' + ' ' + _item_to_string(global_data_lever_remote:'id', global_data_lever_remote:'components'));
+);
+
+use_lever_remote(item) -> (
+  data = _parse_item_data(item);
   if (!data || !data:'pos', return(false));
   toggle_lever(block(data:'pos'));
   true;
@@ -127,25 +158,8 @@ _set_block_data(block, data) -> (
   for(neighbours(block), update(pos(_)));
 );
 
-
-print(create_datapack('scarpet_' + system_info('app_name'), {'data' -> {'minecraft' -> {
-  'recipe' -> {
-    'remotelever.json' -> {
-      'type' -> 'minecraft:crafting_shaped',
-      'pattern' -> [
-        's',
-        'g'
-      ],
-      'key' -> {
-        'g' -> 'minecraft:gold_block',
-        's' -> 'minecraft:stick'
-      },
-      'result' -> data_lever
-    }
-  }
-}}}));
-
 __on_player_uses_item(player, item_tuple, hand) -> (
-  // print([player, item_tuple, hand])
-  if(remote_toggle_lever(player), return('cancel'));
+  // print([player, item_tuple, hand]);
+  if(use_lever_remote(item_tuple), return('cancel'));
 );
+
