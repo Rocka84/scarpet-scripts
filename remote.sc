@@ -1,6 +1,6 @@
 // Remote
 // By Rocka84 (foospils)
-// v1.2
+// v1.3
 
 __config() -> {
   'stay_loaded' -> true,
@@ -172,10 +172,14 @@ use_remote(player, item) -> (
 );
 
 toggle_lever(player, block) -> (
+  set_lever(player, block, null);
+);
+
+set_lever(player, block, state) -> (
   if (block != 'lever', return());
 
   data = block_state(block);
-  data:'powered' = data:'powered' == 'false';
+  data:'powered' = if (state == null, data:'powered' == 'false', state);
   _set_block_data(block, data);
 
   snd = 'block.stone_button.click_' + if(data:'powered', 'on', 'off');
@@ -207,6 +211,12 @@ push_button(player, block) -> (
   true;
 );
 
+global_connected_switches = {
+};
+
+global_connected_buttons = {
+};
+
 _set_block_data(block, data) -> (
   set(pos(block), block, data);
   update(pos(block));
@@ -214,7 +224,29 @@ _set_block_data(block, data) -> (
 );
 
 __on_player_uses_item(player, item_tuple, hand) -> (
-  // print([player, item_tuple, hand]);
   if(use_remote(player, item_tuple), return('cancel'));
+);
+
+_pos_id(pos) -> join('_', map(pos, round(_)));
+
+sync_levers(player, block) -> (
+  if (block ~ 'lever' == null, return(false));
+  id = _pos_id(pos(block));
+  if (!global_connected_switches:id, return(false));
+  set_lever(player, block(global_connected_switches:id), block_state(block):'powered' == false);
+);
+
+sync_buttons(player, block) -> (
+  if (block ~ 'button' == null, return(false));
+  id = _pos_id(pos(block));
+  if (!global_connected_buttons:id, return(false));
+  push_button(player, block(global_connected_buttons:id));
+);
+
+__on_player_right_clicks_block(player, item_tuple, hand, block, face, hitvec) -> (
+  if (
+    sync_levers(player, block), return(),
+    sync_buttons(player, block), return()
+  );
 );
 
