@@ -1,20 +1,41 @@
 // Remote
+// Remote control and/or synchronize buttons and levers.
 // By Rocka84 (foospils)
-// v1.3
+// v1.4
+
+_print(...msg) -> print(player(), format(msg));
+_ucfirst(in) -> upper(slice(in, 0, 1)) + slice(in, 1);
 
 __config() -> {
   'stay_loaded' -> true,
   'scope' -> 'global',
   'commands' -> {
-    '' -> _() -> print('Remote'),
-    'info' -> 'info',
-    'bind'        -> _()  -> autobind_mainhand(player(), null),
-    'bind <name>' -> _(n) -> autobind_mainhand(player(), n),
-    'give lever'  -> _()  -> _give_item(player(), global_data_lever_remote),
-    'give button' -> _()  -> _give_item(player(), global_data_button_remote),
-    // 'use_remote' -> _() -> use_remote(player, query(player(), 'holds', 'mainhand')),
-    // 'toggle_lever' -> _() -> toggle_lever(find_lever(player())),
-    // 'push_button' -> _() -> push_button(find_button(player())),
+    '' -> _() -> (
+      base = 'w /' + system_info('app_name') + ' ';
+      _print('wi Remote control and/or synchronize buttons and levers.\n');
+      _print(base, 'w autobind [<name>]', 'gi  Bind Remote to nearest suitable block.');
+      _print(base, 'w bind [<name>]', 'gi  Bind Remote by right clicking.');
+      _print(base, 'w link [abort]', 'gi  Start/Abort linking levers/buttons.');
+      _print(base, 'w unlink', 'gi  Unlink Remote by right clicking.');
+      _print(base, 'w give (button|lever)', 'gi  Captain Obvious was here.');
+    ),
+    'info'            -> 'info',
+    'autobind'        -> _()  -> autobind_mainhand(player(), null),
+    'autobind <name>' -> _(n) -> autobind_mainhand(player(), n),
+    'bind'            -> _()  -> _set_selection_mode('bind', null),
+    'bind <name>'     -> _(n) -> _set_selection_mode('bind', n),
+    'bind abort'      -> _()  -> _set_selection_mode(null, null),
+    'link'            -> _()  -> _set_selection_mode('link', null),
+    'link abort'      -> _()  -> _set_selection_mode(null, null),
+    'unlink'          -> _()  -> _set_selection_mode('unlink', null),
+    'give lever'      -> _()  -> _give_item(player(), global_data_lever_remote),
+    'give button'     -> _()  -> _give_item(player(), global_data_button_remote),
+  },
+  'arguments' -> {
+    'name' -> {
+      'type' -> 'text',
+      'suggest' -> [],
+    },
   }
 };
 
@@ -33,8 +54,8 @@ global_data_lever_remote = {
       },
       'show_in_tooltip' -> false
     },
-    'minecraft:custom_name' -> '[{"text":"Lever Remote","italic":false}]',
-    'minecraft:lore' -> ['{"text":"Target not set","italic":false}'],
+    'minecraft:custom_name' -> '[{"text":"Lever Remote","italic":false,"color":"white"}]',
+    'minecraft:lore' -> ['{"text":"Target not set","italic":false,"color":"gray"}'],
     'minecraft:custom_model_data' -> 100
   }
 };
@@ -54,15 +75,14 @@ global_data_button_remote = {
       },
       'show_in_tooltip' -> false
     },
-    'minecraft:custom_name' -> '[{"text":"Button Remote","italic":false}]',
-    'minecraft:lore' -> ['{"text":"Target not set","italic":false}'],
+    'minecraft:custom_name' -> '[{"text":"Button Remote","italic":false,"color":"white"}]',
+    'minecraft:lore' -> ['{"text":"Target not set","italic":false,"color":"gray"}'],
     'minecraft:custom_model_data' -> 200
   }
 };
 
-run('datapack disable ' + '"file/scarpet_' + system_info('app_name') + '.zip"');
 run('datapack list');
-create_datapack('scarpet_' + system_info('app_name'), {'data' -> {'minecraft' -> {
+if (create_datapack('scarpet_' + system_info('app_name'), {'data' -> {'minecraft' -> {
   'recipe' -> {
     'lever_remote.json' -> {
       'type' -> 'minecraft:crafting_shaped',
@@ -79,17 +99,30 @@ create_datapack('scarpet_' + system_info('app_name'), {'data' -> {'minecraft' ->
     'button_remote.json' -> {
       'type' -> 'minecraft:crafting_shaped',
       'pattern' -> [
-        'g',
-        's'
+        'ggg',
+        'gcg',
+        'ggg'
       ],
       'key' -> {
-        'g' -> 'minecraft:gold_block',
-        's' -> 'minecraft:stick'
+        'g' -> 'minecraft:gold_ingot',
+        'c' -> 'minecraft:cobblestone'
       },
       'result' -> global_data_button_remote
     }
   }
-}}});
+}}}), (
+  run('datapack disable ' + '"file/scarpet_' + system_info('app_name') + '.zip"');
+  run('datapack enable ' + '"file/scarpet_' + system_info('app_name') + '.zip"');
+  run('recipe give @a minecraft:lever_remote');
+  run('recipe give @a minecraft:button_remote');
+));
+
+global_connected_blocks = read_file('connected_blocks', 'nbt');
+global_connected_blocks = if (global_connected_blocks, parse_nbt(global_connected_blocks), {});
+
+_persist() -> (
+  write_file('connected_blocks', 'nbt', encode_nbt(global_connected_blocks));
+);
 
 _parse_item_data(item) -> (
   if (!item, return(null));
@@ -106,12 +139,14 @@ _item_to_string(item, data) -> (
   item + '[' + join(',', map(pairs(data), _:0 + '=' + encode_nbt(_:1))) + ']';
 );
 
-_ucfirst(in) -> upper(slice(in, 0, 1)) + slice(in, 1);
-
 _get_bound_item(item, block, name) -> (
   item_data = _parse_item_data(item);
   if (block ~ (item_data:'type') == null, (
-    print(player(), 'Can\'t bind this item to this block!');
+    _print('r Can\'t bind this item to this block!');
+    return();
+  ));
+  if (item:1 > 1, (
+    _print('r Can only bind single items!');
     return();
   ));
 
@@ -119,18 +154,22 @@ _get_bound_item(item, block, name) -> (
 
   data = item:2:'components';
   if (!name, name = _ucfirst(item_data:'type') + ' Remote' );
-  data:'minecraft:custom_name' = encode_json([{'text' -> name, 'italic' -> false}]);
-  data:'minecraft:lore' = [encode_json([{'text' -> 'Target: ' + join(' ', map(pos, round(_))), 'italic' -> false}])];
+  data:'minecraft:custom_name' = encode_json([{'text' -> name, 'italic' -> false, 'color' -> 'yellow'}]);
+  // data:'minecraft:lore' = [encode_json([{'text' -> 'Target: ' + join(' ', map(pos, round(_))), 'italic' -> false}])];
+  data:'minecraft:lore' = [encode_json([{'text' -> 'Target: ', 'color' -> 'gray'},{'text' -> join(' ', map(pos, round(_))), 'italic' -> false, 'color' -> 'gray'}])];
   data:'minecraft:custom_data':'remote':'pos' = pos;
+  data:'minecraft:max_stack_size' = 1;
 
   _item_to_string(item:0, data);
 );
 
 _bind_inventory(player, slot, block, name) -> (
   item = _get_bound_item(inventory_get(player, slot), block, name);
-  if (!item, return());
+  if (!item, return(false));
   slot_str = if (slot<9, ' hotbar.' + slot, ' inventory.' + (slot - 8));
   run('/item replace entity ' + player~'name' + slot_str + ' with ' + item);
+  _print('e Bound item to ', 'be ' + (name || block), 'e  at [' + join(' ', pos(block)) + '].');
+  true;
 );
 
 _find_target(player, type) -> (
@@ -138,25 +177,31 @@ _find_target(player, type) -> (
   block;
 );
 
-bind_mainhand(player, block, name) -> (
-  _bind_inventory(player, player~'selected_slot', block, name);
-);
-
 info() -> (
-  print(_parse_item_data(query(player(), 'holds', 'mainhand')));
+  print(player(), _parse_item_data(query(player(), 'holds', 'mainhand')));
 );
 
 autobind_mainhand(player, name) -> (
   item_data = _parse_item_data(query(player, 'holds', 'mainhand'));
-  if (!item_data, return());
+  if (!item_data, return(false));
 
   block = _find_target(player, item_data:'type');
-  if (!block, return());
+  if (!block, return(false));
 
-  bind_mainhand(player, block, name);
+  _bind_inventory(player, player~'selected_slot', block, name);
+);
+
+bind_mainhand(player, block, name) -> (
+  item_data = _parse_item_data(query(player, 'holds', 'mainhand'));
+  if (!item_data || (block ~ (item_data:'type') == null), return(false));
+  _bind_inventory(player, player~'selected_slot', block, name);
 );
 
 _give_item(player, data) -> (
+  if (player()~'gamemode_id' != 1, (
+    _print('r Only allowed in creative mode.');
+    return();
+  ));
   run('/give ' + player~'name' + ' ' + _item_to_string(data:'id', data:'components'));
 );
 
@@ -165,57 +210,53 @@ use_remote(player, item) -> (
   if (!data || !data:'pos', return(false));
   block = block(data:'pos');
   if (
-    data:'type' == 'lever', toggle_lever(player, block),
-    data:'type' == 'button', push_button(player, block),
+    set_lever(block, null), (
+      sound('block.stone_button.click_' + if(block_state(block):'powered' == 'true', 'off', 'on'), player~'pos', 1);
+      sync_blocks(block);
+      true;
+    ),
+    push_button(block), (
+      sound('block.stone_button.click_on', player~'pos', 1);
+      sync_blocks(block);
+      true;
+    ),
     false
   );
 );
 
-toggle_lever(player, block) -> (
-  set_lever(player, block, null);
-);
+global_particles = 'dust{"scale":1,"color":[0.6,0.1,0.1]}';
 
-set_lever(player, block, state) -> (
-  if (block != 'lever', return());
+set_lever(block, state) -> (
+  if (block != 'lever', return(false));
 
   data = block_state(block);
-  data:'powered' = if (state == null, data:'powered' == 'false', state);
+  data:'powered' = if (state == null, !bool(data:'powered'), bool(state));
   _set_block_data(block, data);
 
-  snd = 'block.stone_button.click_' + if(data:'powered', 'on', 'off');
-  sound(snd, pos(block), 1);
-  sound(snd, player~'pos', 1);
+  sound('block.stone_button.click_' + if(data:'powered', 'on', 'off'), pos(block), 1);
+  particle(global_particles, pos(block));
 
   true;
 );
 
-push_button(player, block) -> (
-  if (block ~ 'button' == null, return());
+push_button(block) -> (
+  if (block ~ 'button' == null, return(false));
 
   data = block_state(block);
   data:'powered' = true;
   _set_block_data(block, data);
-  snd = 'block.stone_button.click_on';
-  sound(snd, pos(block), 1);
-  sound(snd, player~'pos', 1);
+  sound('block.stone_button.click_on', pos(block), 1);
+  particle(global_particles, pos(block));
 
   data:'powered' = false;
   delay = if (block ~ 'stone_' == null, 30, 20);
-  schedule(delay, _(player,block,data) -> (
+  schedule(delay, _(block,data) -> (
     _set_block_data(block, data);
-    snd = 'block.stone_button.click_off';
-    sound(snd, pos(block), 1);
-    sound(snd, player~'pos', 1);
-  ), player, block, data);
+    sound('block.stone_button.click_off', pos(block), 1);
+  ), block, data);
 
   true;
 );
-
-global_connected_switches = {
-};
-
-global_connected_buttons = {
-};
 
 _set_block_data(block, data) -> (
   set(pos(block), block, data);
@@ -229,24 +270,78 @@ __on_player_uses_item(player, item_tuple, hand) -> (
 
 _pos_id(pos) -> join('_', map(pos, round(_)));
 
-sync_levers(player, block) -> (
-  if (block ~ 'lever' == null, return(false));
+sync_blocks(block) -> (
+  if (block ~ 'button' == null && block != 'lever', return(false));
+
   id = _pos_id(pos(block));
-  if (!global_connected_switches:id, return(false));
-  set_lever(player, block(global_connected_switches:id), block_state(block):'powered' == false);
+  if (
+    !global_connected_blocks:id, false,
+    block == 'lever', set_lever(block(global_connected_blocks:id), block_state(block):'powered' == false),
+    block ~ 'button' != null, push_button(block(global_connected_blocks:id)),
+    false
+  );
 );
 
-sync_buttons(player, block) -> (
-  if (block ~ 'button' == null, return(false));
-  id = _pos_id(pos(block));
-  if (!global_connected_buttons:id, return(false));
-  push_button(player, block(global_connected_buttons:id));
+global_selected_block = null;
+global_selection_mode = false;
+global_bind_name = null;
+
+_set_selection_mode(mode, name) -> (
+  global_selection_mode = mode;
+  global_bind_name = name;
+  global_selected_block = null;
+  if (
+    mode == 'bind', _print('yb Bind mode:', 'w  right click the target now.'),
+    mode == 'link', _print('yb Linking mode:', 'w  right click the first block now.')
+  );
+);
+
+_select_block_to_link(player, block) -> (
+  if (
+    !global_selection_mode, (
+      false;
+    ), block != 'lever' && block ~ 'button' == null, (
+      _print('r Invalid block, not selected');
+      false;
+    ), global_selection_mode == 'bind', (
+      global_selection_mode = false;
+      bind_mainhand(player, block, global_bind_name);
+    ), global_selection_mode == 'unlink', (
+      posA = pos(block);
+      delete(global_connected_blocks, _pos_id(global_connected_blocks:(_pos_id(posA))));
+      delete(global_connected_blocks, _pos_id(posA));
+      global_selection_mode = false;
+      _persist();
+
+      _print('e blocks unlinked');
+      true;
+    ), global_selected_block == null, (
+      global_selected_block = block;
+
+      _print('y first block selected');
+      true;
+    ), (block == 'lever' && global_selected_block == 'lever') || (block ~ 'button' != null && global_selected_block ~ 'button'), (
+      posA = pos(block);
+      posB = pos(global_selected_block);
+      global_connected_blocks:(_pos_id(posA)) = posB;
+      global_connected_blocks:(_pos_id(posB)) = posA;
+      global_selected_block = null;
+      global_selection_mode = false;
+      _persist();
+
+      _print('e blocks linked');
+      true;
+    ), (
+      _print('r blocks don\'t match');
+      false;
+    )
+  );
 );
 
 __on_player_right_clicks_block(player, item_tuple, hand, block, face, hitvec) -> (
   if (
-    sync_levers(player, block), return(),
-    sync_buttons(player, block), return()
+    _select_block_to_link(player, block), return('cancel'),
+    sync_blocks(block), return(),
   );
 );
 
