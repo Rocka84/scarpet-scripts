@@ -1,6 +1,6 @@
 // Remote
 // By Rocka84 (foospils)
-// v1.1
+// v1.2
 
 __config() -> {
   'stay_loaded' -> true,
@@ -10,8 +10,9 @@ __config() -> {
     'info' -> 'info',
     'bind'        -> _()  -> autobind_mainhand(player(), null),
     'bind <name>' -> _(n) -> autobind_mainhand(player(), n),
-    'give'        -> _()  -> give_lever_remote(player()),
-    // 'use_lever_remote' -> _() -> use_lever_remote(query(player(), 'holds', 'mainhand')),
+    'give lever'  -> _()  -> _give_item(player(), global_data_lever_remote),
+    'give button' -> _()  -> _give_item(player(), global_data_button_remote),
+    // 'use_remote' -> _() -> use_remote(player, query(player(), 'holds', 'mainhand')),
     // 'toggle_lever' -> _() -> toggle_lever(find_lever(player())),
     // 'push_button' -> _() -> push_button(find_button(player())),
   }
@@ -33,7 +34,29 @@ global_data_lever_remote = {
       'show_in_tooltip' -> false
     },
     'minecraft:custom_name' -> '[{"text":"Lever Remote","italic":false}]',
-    'minecraft:lore' -> ['{"text":"Target not set","italic":false}']
+    'minecraft:lore' -> ['{"text":"Target not set","italic":false}'],
+    'minecraft:custom_model_data' -> 100
+  }
+};
+
+global_data_button_remote = {
+  'id' -> 'minecraft:sugar',
+  'components' -> {
+    'minecraft:custom_data' -> {
+      'remote' -> {
+        'type' -> 'button'
+      }
+    },
+    'minecraft:item_model' -> 'minecraft:stone_button',
+    'minecraft:enchantments' -> {
+      'levels' -> {
+        'minecraft:infinity' -> 1
+      },
+      'show_in_tooltip' -> false
+    },
+    'minecraft:custom_name' -> '[{"text":"Button Remote","italic":false}]',
+    'minecraft:lore' -> ['{"text":"Target not set","italic":false}'],
+    'minecraft:custom_model_data' -> 200
   }
 };
 
@@ -41,7 +64,7 @@ run('datapack disable ' + '"file/scarpet_' + system_info('app_name') + '.zip"');
 run('datapack list');
 create_datapack('scarpet_' + system_info('app_name'), {'data' -> {'minecraft' -> {
   'recipe' -> {
-    'remotelever.json' -> {
+    'lever_remote.json' -> {
       'type' -> 'minecraft:crafting_shaped',
       'pattern' -> [
         's',
@@ -52,6 +75,18 @@ create_datapack('scarpet_' + system_info('app_name'), {'data' -> {'minecraft' ->
         's' -> 'minecraft:stick'
       },
       'result' -> global_data_lever_remote
+    },
+    'button_remote.json' -> {
+      'type' -> 'minecraft:crafting_shaped',
+      'pattern' -> [
+        'g',
+        's'
+      ],
+      'key' -> {
+        'g' -> 'minecraft:gold_block',
+        's' -> 'minecraft:stick'
+      },
+      'result' -> global_data_button_remote
     }
   }
 }}});
@@ -83,7 +118,7 @@ _get_bound_item(item, block, name) -> (
   pos = pos(block);
 
   data = item:2:'components';
-  if (name, name = _ucfirst(item_data:'type') + ' Remote' );
+  if (!name, name = _ucfirst(item_data:'type') + ' Remote' );
   data:'minecraft:custom_name' = encode_json([{'text' -> name, 'italic' -> false}]);
   data:'minecraft:lore' = [encode_json([{'text' -> 'Target: ' + join(' ', map(pos, round(_))), 'italic' -> false}])];
   data:'minecraft:custom_data':'remote':'pos' = pos;
@@ -121,35 +156,55 @@ autobind_mainhand(player, name) -> (
   bind_mainhand(player, block, name);
 );
 
-give_lever_remote(player) -> (
-  run('/give ' + player~'name' + ' ' + _item_to_string(global_data_lever_remote:'id', global_data_lever_remote:'components'));
+_give_item(player, data) -> (
+  run('/give ' + player~'name' + ' ' + _item_to_string(data:'id', data:'components'));
 );
 
-use_lever_remote(item) -> (
+use_remote(player, item) -> (
   data = _parse_item_data(item);
   if (!data || !data:'pos', return(false));
-  toggle_lever(block(data:'pos'));
-  true;
+  block = block(data:'pos');
+  if (
+    data:'type' == 'lever', toggle_lever(player, block),
+    data:'type' == 'button', push_button(player, block),
+    false
+  );
 );
 
-toggle_lever(block) -> (
+toggle_lever(player, block) -> (
   if (block != 'lever', return());
 
   data = block_state(block);
   data:'powered' = data:'powered' == 'false';
   _set_block_data(block, data);
+
+  snd = 'block.stone_button.click_' + if(data:'powered', 'on', 'off');
+  sound(snd, pos(block), 1);
+  sound(snd, player~'pos', 1);
+
+  true;
 );
 
-push_button(block) -> (
+push_button(player, block) -> (
   if (block ~ 'button' == null, return());
 
   data = block_state(block);
   data:'powered' = true;
   _set_block_data(block, data);
+  snd = 'block.stone_button.click_on';
+  sound(snd, pos(block), 1);
+  sound(snd, player~'pos', 1);
 
   data:'powered' = false;
   delay = if (block ~ 'stone_' == null, 30, 20);
-  schedule(delay, _(block,data) -> _set_block_data(block, data), block, data);
+  schedule(delay, _(player,block,data) -> (
+    _set_block_data(block, data);
+    snd = 'block.stone_button.click_off';
+    sound(snd, pos(block), 1);
+    sound(snd, player~'pos', 1);
+  ), player, block, data);
+
+  true;
 );
 
 _set_block_data(block, data) -> (
@@ -160,6 +215,6 @@ _set_block_data(block, data) -> (
 
 __on_player_uses_item(player, item_tuple, hand) -> (
   // print([player, item_tuple, hand]);
-  if(use_lever_remote(item_tuple), return('cancel'));
+  if(use_remote(player, item_tuple), return('cancel'));
 );
 
