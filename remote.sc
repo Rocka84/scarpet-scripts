@@ -1,7 +1,7 @@
 // Remote
 // Remote control and/or synchronize buttons and levers.
 // By Rocka84 (foospils)
-// v1.5.1
+// v1.6
 
 _print(...msg) -> print(player(), format(msg));
 _ucfirst(in) -> upper(slice(in, 0, 1)) + slice(in, 1);
@@ -30,14 +30,11 @@ __config() -> {
     'unlink'          -> _()  -> set_selection_mode('unlink', null),
     'give lever'      -> _()  -> give_item(player(), global_data_lever_remote),
     'give button'     -> _()  -> give_item(player(), global_data_button_remote),
+    'clean'           -> 'clean_links',
   },
   'arguments' -> {
     'name' -> {
       'type' -> 'text',
-      'suggest' -> [],
-    },
-    'pos' -> {
-      'type' -> 'pos',
       'suggest' -> [],
     },
   }
@@ -220,12 +217,12 @@ use_remote(player, item) -> (
   if (
     set_lever(block, null), (
       sound('block.stone_button.click_' + if(block_state(block):'powered' == 'true', 'off', 'on'), player~'pos', 1);
-      sync_blocks(block);
+      sync_passive(block);
       true;
     ),
     push_button(block), (
       sound('block.stone_button.click_on', player~'pos', 1);
-      sync_blocks(block);
+      sync_passive(block);
       true;
     ),
     false
@@ -297,10 +294,10 @@ _set_block_data(block, data) -> (
 
 _pos_id(pos) -> join('_', map(pos, round(_)));
 
-sync_blocks(block) -> (
+sync_passive(block) -> (
   id = _pos_id(pos(block));
   if (!global_blocks_passive:id, return(false));
-  set_auto(block(global_blocks_passive:id), !is_on(block)),
+  set_auto(block(global_blocks_passive:id:1), !is_on(block)),
 );
 
 global_selected_block = null;
@@ -324,8 +321,8 @@ _link_passive(blockA, blockB) -> (
   posA = pos(blockA);
   posB = pos(blockB);
 
-  global_blocks_passive:(_pos_id(posA)) = posB;
-  global_blocks_passive:(_pos_id(posB)) = posA;
+  global_blocks_passive:(_pos_id(posA)) = [posA, posB];
+  global_blocks_passive:(_pos_id(posB)) = [posB, posA];
   _persist();
 
   _print('e blocks linked (passive mode)');
@@ -344,19 +341,23 @@ _link_active(blockA, blockB) -> (
 
 _unlink_block(block) -> (
   posA_id = _pos_id(pos(block));
-  if (!global_blocks_passive:posA_id && !global_blocks_active:posA_id, (
-    _print('r Block not connected, aborting.');
-    return(true);
+  if (global_blocks_active:posA_id, (
+    delete(global_blocks_active, _pos_id(global_blocks_active:posA_id:1));
+    delete(global_blocks_active, posA_id);
+  ), global_blocks_passive:posA_id, (
+    delete(global_blocks_passive, _pos_id(global_blocks_passive:posA_id:1));
+    delete(global_blocks_passive, posA_id);
+  ), (
+    _print('r Block not linked, aborting.');
+    return();
   ));
-  posB_id = _pos_id(global_blocks_passive:posA_id);
-
-  delete(global_blocks_passive, posA_id);
-  delete(global_blocks_passive, posB_id);
-  delete(global_blocks_active, posA_id);
-  delete(global_blocks_active, posB_id);
   _persist();
-
   _print('e blocks unlinked');
+);
+
+_is_block_linked(block) -> (
+  id = _pos_id(pos(block));
+  bool(global_blocks_active:id || global_blocks_passive:id);
 );
 
 _select_block_to_link(player, block) -> (
@@ -371,9 +372,13 @@ _select_block_to_link(player, block) -> (
     ), global_selection_mode == 'unlink', (
       _unlink_block(block);
       global_selection_mode = null;
+    ), _is_block_linked(block), (
+      _print('r Block already linked, try again');
     ), global_selected_block == null, (
       _print('y first block selected');
       global_selected_block = block;
+    ), pos(block) == pos(global_selected_block), (
+      _print('r Can\'t link block to itself');
     ), (block == 'lever' && global_selected_block == 'lever') || _match_blocks(block, global_selected_block, 'button'), (
       _link_passive(block, global_selected_block);
       global_selection_mode = null;
@@ -389,12 +394,42 @@ _select_block_to_link(player, block) -> (
   true;
 );
 
+_check_link(posA_id, posA, posB, list) -> (
+  posB_id = _pos_id(posB);
+  // print(player(), [posA_id, posA, posB]);
+  if (!list:posB_id, (
+    delete(list, posA_id);
+    _print('y Unlinking ' + posA_id);
+    return();
+  ));
+
+  if (!posA, posA = map(split('_', posA_id), number(_)));
+  blockA = block(posA);
+  blockB = block(posB);
+
+  if (_pos_id(list:posB_id:1) == posA_id && (
+      _match_blocks(blockA, blockB, 'lever')
+      || _match_blocks(blockA, blockB, 'button')
+      || _match_blocks(blockA, blockB, 'lamp|copper_bulb|lever')
+  ), return());
+
+  _print('y Unlinking ' + posA_id + ' and ' + posB_id);
+  delete(list, posA_id);
+  delete(list, posB_id);
+);
+
+clean_links() -> (
+  for (pairs(global_blocks_active),  _check_link(_:0, _:1:0, _:1:1, global_blocks_active));
+  for (pairs(global_blocks_passive), _check_link(_:0, _:1:0, _:1:1, global_blocks_passive));
+  _persist();
+);
+
 
 // passively wait for player interaction
 __on_player_right_clicks_block(player, item_tuple, hand, block, face, hitvec) -> (
   if (
     _select_block_to_link(player, block), return('cancel'),
-    sync_blocks(block), return(),
+    sync_passive(block), return(),
   );
 );
 
