@@ -1,10 +1,33 @@
 // Remote
 // Remote control and/or synchronize buttons and levers.
 // By Rocka84 (foospils)
-// v1.6
+// v1.7
 
 _print(...msg) -> print(player(), format(msg));
+_exit(msg) -> (_print('r ' + msg); exit());
 _ucfirst(in) -> upper(slice(in, 0, 1)) + slice(in, 1);
+_find_key(lst, value) -> reduce(pairs(lst), if(_:1 == value, _:0, _a), null);
+
+global_permission_names = {
+  -2 -> 'adventure',
+  -1 -> 'creative',
+  0 -> 'everyone',
+  1 -> 'moderator',
+  2 -> 'gamemaster',
+  3 -> 'admin',
+  4 -> 'owner',
+  5 -> 'disabled',
+};
+
+global_check_interval = 1; // Set 0 to disable tick handler
+
+global_permissions = {
+  'admin' -> 3,
+  'bind' -> 0,
+  'give' -> -1,
+  'link' -> 2,
+  'use_remote' -> 0,
+} + (read_file('permissions', 'JSON') || {});
 
 __config() -> {
   'stay_loaded' -> true,
@@ -18,6 +41,7 @@ __config() -> {
       _print(base, 'w link [abort]', 'gi  Start/Abort linking levers/buttons.');
       _print(base, 'w unlink', 'gi  Unlink Remote by right clicking.');
       _print(base, 'w give (button|lever)', 'gi  Captain Obvious was here.');
+      _print(base, 'w clean', 'gi  Cleanup linked blocks.');
     ),
     'info'            -> 'info',
     'autobind'        -> _()  -> autobind_mainhand(player(), null),
@@ -31,11 +55,25 @@ __config() -> {
     'give lever'      -> _()  -> give_item(player(), global_data_lever_remote),
     'give button'     -> _()  -> give_item(player(), global_data_button_remote),
     'clean'           -> 'clean_links',
+    'config permission <permission> <level>' -> _(p,l) -> set_permission(p, l),
+    'config show' -> _() -> list_permissions(),
   },
   'arguments' -> {
     'name' -> {
       'type' -> 'text',
       'suggest' -> [],
+    },
+    'permission' -> {
+      'type' -> 'term',
+      'suggest' -> keys(global_permissions),
+    },
+    'level' -> {
+      'type' -> 'term',
+      'suggest' -> values(global_permission_names),
+    },
+    'ticks' -> {
+      'type' -> 'int',
+      'min' -> 1,
     },
   }
 };
@@ -55,7 +93,7 @@ global_data_lever_remote = {
       },
       'show_in_tooltip' -> false
     },
-    'minecraft:custom_name' -> '[{"text":"Lever Remote","italic":false,"color":"white"}]',
+    'minecraft:custom_name' -> '[{"text":"Lever Remote","italic":false,"color":"#ffff55"}]',
     'minecraft:lore' -> ['{"text":"Target not set","italic":false,"color":"gray"}'],
     'minecraft:custom_model_data' -> 100
   }
@@ -76,7 +114,7 @@ global_data_button_remote = {
       },
       'show_in_tooltip' -> false
     },
-    'minecraft:custom_name' -> '[{"text":"Button Remote","italic":false,"color":"white"}]',
+    'minecraft:custom_name' -> '[{"text":"Button Remote","italic":false,"color":"#ffff55"}]',
     'minecraft:lore' -> ['{"text":"Target not set","italic":false,"color":"gray"}'],
     'minecraft:custom_model_data' -> 200
   }
@@ -118,15 +156,39 @@ if (create_datapack('scarpet_' + system_info('app_name'), {'data' -> {'minecraft
   run('recipe give @a minecraft:button_remote');
 ));
 
-global_blocks_passive = read_file('blocks_passive', 'JSON');
-if (!global_blocks_passive, global_blocks_passive = {});
+global_blocks_passive = read_file('blocks_passive', 'JSON') || {};
+// if (!global_blocks_passive, global_blocks_passive = {});
 
-global_blocks_active = read_file('blocks_active', 'JSON');
-if (!global_blocks_active, global_blocks_active = {});
+global_blocks_active = read_file('blocks_active', 'JSON') || {};
+// if (!global_blocks_active, global_blocks_active = {});
 
 _persist() -> (
   write_file('blocks_passive', 'JSON', global_blocks_passive);
   write_file('blocks_active', 'JSON', global_blocks_active);
+);
+
+
+_check_permission(permission) -> (
+  if (player() == null, return(global_permissions:permission < 5));
+  if (global_permissions:permission < 0 && player()~'gamemode' == global_permissions:permission * -1, return(true));
+  player()~'permission_level' >= global_permissions:permission;
+);
+
+list_permissions() -> (
+  if (!_check_permission('admin'), _exit('Not allowed'));
+  _print('wb Required Permissions');
+  for(pairs(global_permissions), (
+    _print('b ' + _:0, 'w : ' + global_permission_names:(_:1) + ' (' + _:1 + ')');
+  ));
+);
+
+set_permission(permission, level) -> (
+  if (!_check_permission('admin'), _exit('Not allowed'));
+  if (global_permissions:permission == null, _exit('Unknown permission'));
+  if (number(level) == level, level = number(level), level = _find_key(global_permission_names, level));
+  if (level == null, return());
+  global_permissions:permission = level;
+  write_file('permissions', 'JSON', global_permissions);
 );
 
 _parse_item_data(item) -> (
@@ -159,8 +221,7 @@ _get_bound_item(item, block, name) -> (
 
   data = item:2:'components';
   if (!name, name = _ucfirst(item_data:'type') + ' Remote' );
-  data:'minecraft:custom_name' = encode_json([{'text' -> name, 'italic' -> false, 'color' -> 'yellow'}]);
-  // data:'minecraft:lore' = [encode_json([{'text' -> 'Target: ' + join(' ', map(pos, round(_))), 'italic' -> false}])];
+  data:'minecraft:custom_name' = encode_json([{'text' -> name, 'italic' -> false, 'color' -> '#55ffff'}]);
   data:'minecraft:lore' = [encode_json([{'text' -> 'Target: ', 'color' -> 'gray'},{'text' -> join(' ', map(pos, round(_))), 'italic' -> false, 'color' -> 'gray'}])];
   data:'minecraft:custom_data':'remote':'pos' = pos;
   data:'minecraft:max_stack_size' = 1;
@@ -187,6 +248,7 @@ info() -> (
 );
 
 autobind_mainhand(player, name) -> (
+  if (!_check_permission('bind'), _exit('Not allowed'));
   item_data = _parse_item_data(query(player, 'holds', 'mainhand'));
   if (!item_data, return(false));
 
@@ -203,14 +265,12 @@ _bind_mainhand(player, block, name) -> (
 );
 
 give_item(player, data) -> (
-  if (player()~'gamemode_id' != 1, (
-    _print('r Only allowed in creative mode.');
-    return();
-  ));
+  if (!_check_permission('give'), _exit('Not allowed'));
   run('/give ' + player~'name' + ' ' + _item_to_string(data:'id', data:'components'));
 );
 
 use_remote(player, item) -> (
+  if (!_check_permission('use_remote'), _exit('Not allowed'));
   data = _parse_item_data(item);
   if (!data || !data:'pos', return(false));
   block = block(data:'pos');
@@ -247,7 +307,6 @@ set_lever(block, state) -> (
 );
 
 set_lamp(block, state) -> (
-  // print(block);
   if (block != 'redstone_lamp' && block ~ 'copper_bulb' == null, return(false));
 
   data = block_state(block);
@@ -305,14 +364,15 @@ global_selection_mode = false;
 global_bind_name = null;
 
 set_selection_mode(mode, name) -> (
-  global_selection_mode = mode;
-  global_bind_name = name;
-  global_selected_block = null;
+  if (mode && !_check_permission(mode), _exit('Not allowed'));
   if (
     mode == 'bind', _print('yb Bind mode:', 'w  right click the target now.'),
     mode == 'link', _print('yb Linking mode:', 'w  right click the first block now.'),
     mode == null, _print('yb Linking aborted')
   );
+  global_selection_mode = mode;
+  global_bind_name = name;
+  global_selected_block = null;
 );
 
 _match_blocks(a, b, expr) -> ((a ~ expr != null) && (b ~ expr != null));
@@ -396,7 +456,6 @@ _select_block_to_link(player, block) -> (
 
 _check_link(posA_id, posA, posB, list) -> (
   posB_id = _pos_id(posB);
-  // print(player(), [posA_id, posA, posB]);
   if (!list:posB_id, (
     delete(list, posA_id);
     _print('y Unlinking ' + posA_id);
@@ -419,6 +478,7 @@ _check_link(posA_id, posA, posB, list) -> (
 );
 
 clean_links() -> (
+  if (!_check_permission('admin'), _exit('Not allowed'));
   for (pairs(global_blocks_active),  _check_link(_:0, _:1:0, _:1:1, global_blocks_active));
   for (pairs(global_blocks_passive), _check_link(_:0, _:1:0, _:1:1, global_blocks_passive));
   _persist();
@@ -449,8 +509,9 @@ _observe_blocks() -> (
   ));
 );
 
-global_check_interval=1;
-__on_tick() -> (
-  if (tick_time() % global_check_interval == 0, _observe_blocks());
-);
+if (global_check_interval > 0, (
+  __on_tick() -> (
+    if (tick_time() % global_check_interval == 0, _observe_blocks());
+  );
+));
 
