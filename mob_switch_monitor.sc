@@ -1,6 +1,6 @@
 // Mob Switch Status Monitor
 // By Rocka84 (foospils)
-// v1.2
+// v1.2.1
 
 __config() -> {
   'stay_loaded' -> true,
@@ -53,6 +53,11 @@ check_mob_switch(dimension) -> (
 );
 
 _tp(player, dimension) -> (
+  if (player()~'permission_level' < 2, (
+    print(player(), 'Only allowed for operators');
+    return();
+  ));
+
   if (dimension == null, dimension = player~'dimension');
   run('execute in ' + dimension + ' run tp ' + player + ' ' + str('%d %d %d', global_switch_pos:dimension));
 );
