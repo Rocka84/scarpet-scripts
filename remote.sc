@@ -1,7 +1,7 @@
 // Remote
 // Remote control and/or synchronize buttons and levers.
 // By Rocka84 (foospils)
-// v1.7
+// v1.7.1
 
 _print(...msg) -> print(player(), format(msg));
 _exit(msg) -> (_print('r ' + msg); exit());
@@ -456,6 +456,7 @@ _select_block_to_link(player, block) -> (
 
 _check_link(posA_id, posA, posB, list) -> (
   posB_id = _pos_id(posB);
+  if (!list:posA_id, return());
   if (!list:posB_id, (
     delete(list, posA_id);
     _print('y Unlinking ' + posA_id);
@@ -466,11 +467,7 @@ _check_link(posA_id, posA, posB, list) -> (
   blockA = block(posA);
   blockB = block(posB);
 
-  if (_pos_id(list:posB_id:1) == posA_id && (
-      _match_blocks(blockA, blockB, 'lever')
-      || _match_blocks(blockA, blockB, 'button')
-      || _match_blocks(blockA, blockB, 'lamp|copper_bulb|lever')
-  ), return());
+  if (_pos_id(list:posB_id:1) == posA_id && _match_blocks(blockA, blockB, 'lever|button|lamp|copper_bulb'), return());
 
   _print('y Unlinking ' + posA_id + ' and ' + posB_id);
   delete(list, posA_id);
