@@ -1,7 +1,7 @@
 // Waypoints - Server wide waypoint system
-// Original by Firigion and boyenn
-// Fork by Rocka84 (foospils)
-// v1.4
+// Originally by Firigion and boyenn
+// Reworked by Rocka84 (foospils)
+// v1.4.1
 
 global_waypoint_config = {
   // Config option to allow players to tp to the waypoints ( Either via `/waypoint list` or `/waypoint tp` )
@@ -256,7 +256,7 @@ edit(name, description) -> (
 );
 
 tp(name) -> (
-  if(!_can_player_tp(), _error(str('Teleporting not allowed in %s mode', player()~'gamemode')) ); //for modes 1 and 2
+  if(!_can_player_tp(), _error(str('Teleporting not allowed in %s mode', player()~'gamemode')) );
   loc = global_waypoints:name:0;
   dim = global_waypoints:name:3;
   if(loc == null, _exit('w Waypoint ', 'b ' + name, 'r  does not exist.'));
@@ -302,7 +302,6 @@ _track_tick(player) -> (
 
   if(global_waypoints:(global_track:player):3 != player~'dimension', return());
 
-  // track_ticks = max(global_waypoint_config:'track_ticks', system_info('server_last_tick_times'):0);
   track_ticks = global_waypoint_config:'track_ticks';
 
   ppos = player~'pos';
@@ -323,8 +322,7 @@ _track_tick(player) -> (
   ));
 
   segment = destination - (ppos + eyes); //vector from players eyes to the destination
-  // eye_distance = sqrt((segment:0 * segment:0) + (segment:1 * segment:1) + (segment:2 * segment:2)); //distance from players eyes to destination
-  direction = segment / sqrt((segment:0 * segment:0) + (segment:1 * segment:1) + (segment:2 * segment:2)); //whole vector divided by its length
+  direction = segment / sqrt((segment:0 * segment:0) + (segment:1 * segment:1) + (segment:2 * segment:2)); //vector divided by its length
 
 
   if (indicator == 'rendered' || indicator == 'both', (
@@ -333,9 +331,6 @@ _track_tick(player) -> (
     ),(
       shape_pos = (shape_distance * direction) + eyes; //draw in _direction_ with _shape_distance_ relative to players _eyes_.
     ));
-
-    // text = ['y ' + global_track:player];
-    // if (indicator == 'rendered', text += 'w  (' + round(distance) + 'm)');
 
     shapes = [
       [
@@ -367,7 +362,6 @@ _track_tick(player) -> (
         'follow', player,
         'pos', shape_pos,
         'height', -0.3,
-        // 'text', format('w (' + round(distance) + 'm)'),
         'text', '(' + round(distance) + 'm)',
         'size', 2,
       ],
@@ -412,7 +406,11 @@ help() -> (
   print(player, format('q \ \ edit <waypoint> <description>', 'fb \ | ', 'g edit the description of an existing waypoint'));
   print(player, format('q \ \ list [<dimension>] [<author>]', 'fb \ | ', 'g list all existing waypoints, optionally filtering by dimensions and/or author'));
   print(player, format('q \ \ settings [<category> <what> <value>]', 'fb \ | ', 'g sets options'));
-  if(_is_tp_allowed(),  print(player, format('q \ \ tp <waypoint>', 'fb \ | ', 'g teleport to given waypoint')));  
+  if(_is_tp_allowed(),  print(player, format('q \ \ tp <waypoint>', 'fb \ | ', 'g teleport to given waypoint')));
+  if (player()~'permission_level' > 1, (
+    print(player, format('q \ \ config <config>', 'fb \ | ', 'g get config option (admin only)'));
+    print(player, format('q \ \ config <config> <value>', 'fb \ | ', 'g set config option (admin only)'));
+  ));
 );
 
 _error(msg)->(
