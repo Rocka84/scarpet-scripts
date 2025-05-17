@@ -1,6 +1,6 @@
 // mark_area - Visualize the area selected in WorldEdit.
 // By Rocka84 (foospils)
-// v1.2
+// v1.2.1
 
 __config() -> {
   'stay_loaded' -> true,
@@ -22,7 +22,6 @@ __config() -> {
     'hide' -> ['hide'],
     'toggle' -> _() -> if(global_area_visible, hide(), show()),
     'toggleThick' -> _() -> (hide(); global_thick_box = !global_thick_box; show();),
-    // 'test' -> _() -> (print(['look',_get_player_direction()]); print(['facing', query(player(), 'facing')]);),
   },
   'arguments' -> {
     'pos' -> { 'type' -> 'pos' },
@@ -51,7 +50,6 @@ global_direction_vectors = {
   'south' -> [ 0,  0,  1],
   'west'  -> [-1,  0,  0],
 };
-
 
 
 __draw_box(from, to, color, duration) -> (
@@ -125,11 +123,6 @@ _calc_minmax() -> (
   ];
 );
 
-_run_worldedit(command) -> (
-  // print('/'+'/'+command);
-  run('/'+'/'+command);
-);
-
 _get_player_direction() -> (
   look = query(player(), 'look');
 
@@ -198,8 +191,6 @@ hide() -> (
 );
 
 pos1(pos) -> (
-  // _run_worldedit('pos1 ' + floor(pos:0) + ',' + floor(pos:1) + ',' + floor(pos:2));
-
   hide();
   global_pos1 = pos;
   _calc_minmax();
@@ -207,8 +198,6 @@ pos1(pos) -> (
 );
 
 pos2(pos) -> (
-  // _run_worldedit('pos2 ' + floor(pos:0) + ',' + floor(pos:1) + ',' + floor(pos:2));
-
   hide();
   global_pos2 = pos;
   _calc_minmax();
@@ -216,7 +205,6 @@ pos2(pos) -> (
 );
 
 expand(count, direction) -> (
-  // _run_worldedit('expand ' + count + ' ' + direction);
   if(global_pos1 == null || global_pos2 == null, return());
 
   hide();
@@ -231,7 +219,6 @@ expand(count, direction) -> (
 );
 
 shift(count, direction) -> (
-  // _run_worldedit('expand ' + count + ' ' + direction);
   if(global_pos1 == null || global_pos2 == null, return());
 
   hide();
