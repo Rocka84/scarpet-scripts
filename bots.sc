@@ -2,7 +2,7 @@
 //  save and restore sets of bots (carpet players) and auto-restore bots on server restart
 // by Rocka84 (foospils)
 // based on keepalive.sc by gnembon
-// v1.4
+// v1.4.1
 
 global_app_name = system_info('app_name');
 global_required_permission = 5;
@@ -221,13 +221,20 @@ kill(bot) -> (
   run('player ' + bot + ' kill');
 );
 
-__on_server_shuts_down() -> (
+_on_exit() -> (
   save_set('#autosave');
   for (filter(player('all'), _~'player_type' == 'fake'), (
     run('player ' + _~'name' + ' dismount');
   ));
 );
-__on_server_starts() -> schedule(40, 'apply_set', '#autosave');
+
+if (run('whitelist list'), ( //multiplayer
+  __on_server_shuts_down() -> _on_exit();
+  __on_server_starts() -> schedule(40, 'apply_set', '#autosave');
+), (                        //singleplayer
+  __on_close() -> _on_exit();
+  __on_server_starts() -> schedule(1, 'apply_set', '#autosave');
+));
 
 
 list_sets() -> (
