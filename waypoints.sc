@@ -477,7 +477,6 @@ _get_commands() -> (
     'settings track indicator <type>'       -> _(t) -> _set_setting('track_indicator', t),
     'settings track autodisable off'        -> _()  -> _set_setting('track_autodisable', -1),
     'settings track autodisable <distance>' -> _(d) -> _set_setting('track_autodisable', d),
-    'settings track autodisable <distance>' -> _(d) -> _set_setting('track_autodisable', d),
     'settings list  show_author <value>'    -> _(v) -> _set_setting('list_show_author', v),
     'settings list  default_dimension <dimension>' -> _(v) -> _set_setting('list_default_dimension', v),
     'settings list  sort_by distance'       -> _()  -> _set_setting('list_sort_by', 'distance'),

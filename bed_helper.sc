@@ -1,4 +1,4 @@
-// Bed Helper - Suppress "too far away" message for beds and optinally teleport to clicked bed.
+// Bed Helper - Suppress "too far away" message for beds and optionally teleport to clicked bed.
 // By Rocka84 (foospils)
 // v1.1
 
@@ -78,21 +78,21 @@ isNight() -> (
 );
 
 isThunderstorm() -> (
-  return(weather() == 'thunder' && weather('rain') > 0 );
+  return(weather() == 'thunder' && weather('rain') > 0);
 );
 
-isSpawnBed(bed) -> (
-  spawn = player()~'spawn_point';
-  player()~'dimension' == spawn:1 && distance(spawn:0, pos(bed)) <= 1;
+isSpawnBed(player, bed) -> (
+  spawn = player~'spawn_point';
+  player~'dimension' == spawn:1 && distance(spawn:0, pos(bed)) <= 1;
 );
 
 __on_player_right_clicks_block(player, item_tuple, hand, block, face, hitvec) -> (
-  if (!global_enabled || !(block ~ 'bed'), return());
+  if (!global_enabled || !(block ~ '_bed'), return());
 
   can_sleep = isNight() || isThunderstorm();
 
   // when you can't sleep and this bed is already your respawn point, abort the click action
-  if (!can_sleep && isSpawnBed(block), return('cancel'));
+  if (!can_sleep && isSpawnBed(player, block), return('cancel'));
 
   // if you're near enough to the bed, just let the click event finish
   if (distanceToBed(player, block) <= 3, return());
